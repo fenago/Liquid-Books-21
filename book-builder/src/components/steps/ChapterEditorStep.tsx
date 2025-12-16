@@ -1,0 +1,1852 @@
+'use client';
+
+import { useState, useCallback } from 'react';
+import { useBookStore } from '@/store/useBookStore';
+import { Chapter, AIProvider } from '@/types';
+import { MYST_FEATURES_DATA, getFeaturesByCategory, MystFeatureCategory } from '@/data/mystFeatures';
+import { MystPreview } from '@/components/MystPreview';
+import {
+  ArrowLeft,
+  ChevronUp,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Sparkles,
+  Loader2,
+  Save,
+  Check,
+  RefreshCw,
+  Eye,
+  Edit3,
+  Plus,
+  Trash2,
+  Settings,
+  Layers,
+  X,
+  GripVertical,
+  Wand2,
+  Pencil,
+  MessageSquare,
+  BarChart3,
+  BookOpen,
+  Hash,
+  Info,
+  Play,
+  ExternalLink,
+  AlertTriangle,
+} from 'lucide-react';
+
+type EditorTab = 'ai-generate' | 'manual-write';
+type ModalType = 'none' | 'features' | 'system-prompt' | 'add-chapter' | 'analytics';
+
+interface ChapterRowProps {
+  chapter: Chapter;
+  depth: number;
+  index: number;
+  totalSiblings: number;
+  parentId?: string;
+  isExpanded: boolean;
+  isSelected: boolean;
+  onSelect: (chapter: Chapter) => void;
+  onToggleExpand: (id: string) => void;
+  onMoveUp: (id: string, parentId?: string) => void;
+  onMoveDown: (id: string, parentId?: string) => void;
+  onDelete: (id: string) => void;
+  onAddSubChapter: (parentId: string) => void;
+  onOpenFeatures: (chapter: Chapter) => void;
+  onOpenSystemPrompt: (chapter: Chapter) => void;
+}
+
+function ChapterRow({
+  chapter,
+  depth,
+  index,
+  totalSiblings,
+  parentId,
+  isExpanded,
+  isSelected,
+  onSelect,
+  onToggleExpand,
+  onMoveUp,
+  onMoveDown,
+  onDelete,
+  onAddSubChapter,
+  onOpenFeatures,
+  onOpenSystemPrompt,
+}: ChapterRowProps) {
+  const hasChildren = chapter.children && chapter.children.length > 0;
+  const hasContent = !!chapter.content;
+  const hasFeatures = chapter.selectedFeatures && chapter.selectedFeatures.length > 0;
+  const hasSystemPrompt = !!chapter.systemPrompt;
+
+  return (
+    <div
+      className={`
+        flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700
+        ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
+        transition-colors
+      `}
+      style={{ paddingLeft: `${12 + depth * 24}px` }}
+    >
+      {/* Drag Handle */}
+      <GripVertical className="h-4 w-4 text-gray-400 cursor-grab flex-shrink-0" />
+
+      {/* Expand/Collapse */}
+      {hasChildren ? (
+        <button
+          onClick={() => onToggleExpand(chapter.id)}
+          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+        >
+          {isExpanded ? (
+            <ChevronDown className="h-4 w-4 text-gray-500" />
+          ) : (
+            <ChevronRight className="h-4 w-4 text-gray-500" />
+          )}
+        </button>
+      ) : (
+        <div className="w-6" />
+      )}
+
+      {/* Chapter Icon & Title */}
+      <button
+        onClick={() => onSelect(chapter)}
+        className="flex items-center gap-2 flex-1 min-w-0 text-left"
+      >
+        <FileText className={`h-4 w-4 flex-shrink-0 ${hasContent ? 'text-green-500' : 'text-gray-400'}`} />
+        <span className="truncate text-sm font-medium text-gray-900 dark:text-white">
+          {chapter.title}
+        </span>
+      </button>
+
+      {/* Status Indicators */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {hasContent && (
+          <span className="px-1.5 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded">
+            Content
+          </span>
+        )}
+        {hasFeatures && (
+          <span className="px-1.5 py-0.5 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">
+            {chapter.selectedFeatures?.length} features
+          </span>
+        )}
+        {hasSystemPrompt && (
+          <MessageSquare className="h-3.5 w-3.5 text-blue-500" />
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {/* Move Up */}
+        <button
+          onClick={() => onMoveUp(chapter.id, parentId)}
+          disabled={index === 0}
+          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Move up"
+        >
+          <ChevronUp className="h-4 w-4 text-gray-500" />
+        </button>
+
+        {/* Move Down */}
+        <button
+          onClick={() => onMoveDown(chapter.id, parentId)}
+          disabled={index === totalSiblings - 1}
+          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Move down"
+        >
+          <ChevronDown className="h-4 w-4 text-gray-500" />
+        </button>
+
+        {/* Features */}
+        <button
+          onClick={() => onOpenFeatures(chapter)}
+          className="p-1 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded"
+          title="Select features"
+        >
+          <Layers className="h-4 w-4 text-purple-500" />
+        </button>
+
+        {/* System Prompt */}
+        <button
+          onClick={() => onOpenSystemPrompt(chapter)}
+          className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded"
+          title="Edit system prompt"
+        >
+          <Settings className="h-4 w-4 text-blue-500" />
+        </button>
+
+        {/* Add Sub-chapter */}
+        <button
+          onClick={() => onAddSubChapter(chapter.id)}
+          className="p-1 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"
+          title="Add sub-chapter"
+        >
+          <Plus className="h-4 w-4 text-green-500" />
+        </button>
+
+        {/* Delete */}
+        <button
+          onClick={() => onDelete(chapter.id)}
+          className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"
+          title="Delete chapter"
+        >
+          <Trash2 className="h-4 w-4 text-red-500" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function ChapterEditorStep() {
+  const {
+    bookConfig,
+    aiConfig,
+    updateChapterContent,
+    updateChapter,
+    setCurrentStep,
+    moveChapterUp,
+    moveChapterDown,
+    addChapter,
+    removeChapter,
+    updateChapterSystemPrompt,
+    toggleChapterFeature,
+    updateChapterInputMode,
+    updateChapterWordCount,
+    updateChapterModel,
+    updateChapterProvider,
+    setProviderConfig,
+    getProviderConfig,
+  } = useBookStore();
+
+  const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isFormatting, setIsFormatting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'verified' | 'unverified' | 'error'>('idle');
+  const [saveDetails, setSaveDetails] = useState<{
+    commitUrl?: string;
+    fileUrl?: string;
+    commitSha?: string;
+    verified?: boolean;
+    message?: string;
+    error?: string;
+    actionsUrl?: string;
+    workflowTriggered?: boolean;
+    workflowRunUrl?: string;
+  } | null>(null);
+  const [editedContent, setEditedContent] = useState('');
+  const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [editorTab, setEditorTab] = useState<EditorTab>('ai-generate');
+  const [chapterDescription, setChapterDescription] = useState('');
+  const [targetWordCount, setTargetWordCount] = useState<number>(2000);
+  const [modalType, setModalType] = useState<ModalType>('none');
+  const [modalChapter, setModalChapter] = useState<Chapter | null>(null);
+  const [tempSystemPrompt, setTempSystemPrompt] = useState('');
+  const [tempSelectedModel, setTempSelectedModel] = useState<string | null>(null);
+  const [tempSelectedProvider, setTempSelectedProvider] = useState<AIProvider | undefined>(undefined);
+  const [tempProviderApiKey, setTempProviderApiKey] = useState('');
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [providerModels, setProviderModels] = useState<Array<{ id: string; name: string; provider: AIProvider }>>([]);
+  const [newChapterTitle, setNewChapterTitle] = useState('');
+  const [addChapterParentId, setAddChapterParentId] = useState<string | null>(null);
+
+  const toggleExpanded = useCallback((chapterId: string) => {
+    setExpandedChapters(prev => {
+      const newExpanded = new Set(prev);
+      if (newExpanded.has(chapterId)) {
+        newExpanded.delete(chapterId);
+      } else {
+        newExpanded.add(chapterId);
+      }
+      return newExpanded;
+    });
+  }, []);
+
+  const selectChapter = useCallback((chapter: Chapter) => {
+    setSelectedChapter(chapter);
+    setEditedContent(chapter.content || '');
+    setChapterDescription(chapter.description || '');
+    setTargetWordCount(chapter.targetWordCount || 2000);
+    setSaveStatus('idle');
+    setEditorTab(chapter.inputMode === 'manual-write' ? 'manual-write' : 'ai-generate');
+  }, []);
+
+  const handleMoveUp = useCallback((chapterId: string, parentId?: string) => {
+    moveChapterUp(chapterId, parentId);
+  }, [moveChapterUp]);
+
+  const handleMoveDown = useCallback((chapterId: string, parentId?: string) => {
+    moveChapterDown(chapterId, parentId);
+  }, [moveChapterDown]);
+
+  const handleDelete = useCallback((chapterId: string) => {
+    if (confirm('Are you sure you want to delete this chapter?')) {
+      removeChapter(chapterId);
+      if (selectedChapter?.id === chapterId) {
+        setSelectedChapter(null);
+        setEditedContent('');
+      }
+    }
+  }, [removeChapter, selectedChapter]);
+
+  const handleAddSubChapter = useCallback((parentId: string) => {
+    setAddChapterParentId(parentId);
+    setNewChapterTitle('');
+    setModalType('add-chapter');
+  }, []);
+
+  const handleOpenFeatures = useCallback((chapter: Chapter) => {
+    setModalChapter(chapter);
+    setModalType('features');
+  }, []);
+
+  const handleOpenSystemPrompt = useCallback((chapter: Chapter) => {
+    setModalChapter(chapter);
+    setTempSystemPrompt(chapter.systemPrompt || '');
+    setTempSelectedModel(chapter.selectedModel || null);
+    setTempSelectedProvider(chapter.selectedProvider || undefined);
+
+    // Load API key for the selected provider if available
+    const selectedProv = chapter.selectedProvider || aiConfig.provider;
+    if (selectedProv) {
+      const provConfig = getProviderConfig(selectedProv);
+      setTempProviderApiKey(provConfig?.apiKey || '');
+      setProviderModels(provConfig?.availableModels || aiConfig.availableModels || []);
+    } else {
+      setTempProviderApiKey('');
+      setProviderModels(aiConfig.availableModels || []);
+    }
+
+    setModalType('system-prompt');
+  }, [aiConfig.provider, aiConfig.availableModels, getProviderConfig]);
+
+  const handleSaveSystemPrompt = useCallback(() => {
+    if (modalChapter) {
+      updateChapterSystemPrompt(modalChapter.id, tempSystemPrompt);
+      if (tempSelectedModel) {
+        updateChapterModel(modalChapter.id, tempSelectedModel);
+      }
+      // Save provider selection
+      updateChapterProvider(modalChapter.id, tempSelectedProvider);
+
+      // Save provider API key if set
+      if (tempSelectedProvider && tempProviderApiKey) {
+        setProviderConfig(tempSelectedProvider, {
+          apiKey: tempProviderApiKey,
+          availableModels: providerModels,
+          isConfigured: true,
+        });
+      }
+
+      // Update selectedChapter local state to reflect the changes
+      // This ensures generateChapterContent uses the updated provider
+      if (selectedChapter && selectedChapter.id === modalChapter.id) {
+        setSelectedChapter({
+          ...selectedChapter,
+          systemPrompt: tempSystemPrompt,
+          selectedModel: tempSelectedModel || selectedChapter.selectedModel,
+          selectedProvider: tempSelectedProvider,
+        });
+      }
+
+      setModalType('none');
+      setModalChapter(null);
+    }
+  }, [modalChapter, tempSystemPrompt, tempSelectedModel, tempSelectedProvider, tempProviderApiKey, providerModels, updateChapterSystemPrompt, updateChapterModel, updateChapterProvider, setProviderConfig, selectedChapter]);
+
+  // Load models for a provider with given API key
+  const loadModelsForProvider = useCallback(async (provider: AIProvider, apiKey: string) => {
+    if (!apiKey) {
+      setProviderModels([]);
+      return;
+    }
+
+    setIsLoadingModels(true);
+    try {
+      const response = await fetch('/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, apiKey }),
+      });
+
+      const data = await response.json();
+      if (response.ok && data.models) {
+        setProviderModels(data.models);
+        // Also update the provider config in the store
+        setProviderConfig(provider, {
+          apiKey,
+          availableModels: data.models,
+          isConfigured: true,
+        });
+      } else {
+        console.error('Failed to load models:', data.error);
+        setProviderModels([]);
+      }
+    } catch (error) {
+      console.error('Error loading models:', error);
+      setProviderModels([]);
+    } finally {
+      setIsLoadingModels(false);
+    }
+  }, [setProviderConfig]);
+
+  // Handle provider change in modal
+  const handleProviderChange = useCallback((provider: AIProvider | undefined) => {
+    setTempSelectedProvider(provider);
+    setTempSelectedModel(null);
+
+    if (provider) {
+      // Try to load existing config for this provider
+      const provConfig = getProviderConfig(provider);
+      if (provConfig?.apiKey) {
+        setTempProviderApiKey(provConfig.apiKey);
+        if (provConfig.availableModels.length > 0) {
+          setProviderModels(provConfig.availableModels);
+        } else {
+          // Fetch models if not loaded
+          loadModelsForProvider(provider, provConfig.apiKey);
+        }
+      } else {
+        setTempProviderApiKey('');
+        setProviderModels([]);
+      }
+    } else {
+      // Use default config
+      setTempProviderApiKey(aiConfig.apiKey);
+      setProviderModels(aiConfig.availableModels || []);
+    }
+  }, [aiConfig.apiKey, aiConfig.availableModels, getProviderConfig, loadModelsForProvider]);
+
+  const handleAddNewChapter = useCallback(() => {
+    if (!newChapterTitle.trim()) return;
+
+    const slug = newChapterTitle
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+
+    const newChapter: Chapter = {
+      id: `ch-${Date.now()}`,
+      title: newChapterTitle,
+      slug,
+      inputMode: 'ai-generate',
+    };
+
+    addChapter(newChapter, addChapterParentId || undefined);
+    setModalType('none');
+    setNewChapterTitle('');
+    setAddChapterParentId(null);
+
+    // Expand parent if adding sub-chapter
+    if (addChapterParentId) {
+      setExpandedChapters(prev => new Set([...prev, addChapterParentId]));
+    }
+  }, [newChapterTitle, addChapterParentId, addChapter]);
+
+  const handleToggleFeature = useCallback((featureId: string) => {
+    if (modalChapter) {
+      toggleChapterFeature(modalChapter.id, featureId);
+      // Update modal chapter state to reflect change
+      setModalChapter(prev => {
+        if (!prev) return null;
+        const currentFeatures = prev.selectedFeatures || [];
+        const hasFeature = currentFeatures.includes(featureId);
+        return {
+          ...prev,
+          selectedFeatures: hasFeature
+            ? currentFeatures.filter(id => id !== featureId)
+            : [...currentFeatures, featureId],
+        };
+      });
+    }
+  }, [modalChapter, toggleChapterFeature]);
+
+  const generateChapterContent = async () => {
+    console.log('generateChapterContent called');
+    console.log('selectedChapter:', selectedChapter);
+
+    if (!selectedChapter) {
+      console.error('No chapter selected!');
+      alert('Please select a chapter first');
+      return;
+    }
+
+    // Determine which provider and API key to use
+    const chapterProvider = selectedChapter.selectedProvider || aiConfig.provider;
+    let effectiveApiKey = aiConfig.apiKey;
+
+    // If chapter has a specific provider, use that provider's API key
+    if (selectedChapter.selectedProvider) {
+      const provConfig = getProviderConfig(selectedChapter.selectedProvider);
+      if (provConfig?.apiKey) {
+        effectiveApiKey = provConfig.apiKey;
+      }
+    }
+
+    console.log('Using provider:', chapterProvider);
+    console.log('API key present:', effectiveApiKey ? 'yes' : 'no');
+    console.log('aiConfig.selectedModel:', aiConfig.selectedModel);
+
+    if (!effectiveApiKey) {
+      console.error('No API key!');
+      const providerName = chapterProvider || 'AI';
+      alert(`API key is missing for ${providerName}. Please configure the API key in Chapter Settings or go back to AI Setup.`);
+      return;
+    }
+
+    if (!chapterProvider) {
+      console.error('No provider selected!');
+      alert('No AI provider selected. Please select a provider in AI Setup or Chapter Settings.');
+      return;
+    }
+
+    setIsGenerating(true);
+    console.log('Starting generation...');
+
+    try {
+      // Build features context
+      const featuresContext = selectedChapter.selectedFeatures?.length
+        ? `\n\nInclude these MyST features in your output where appropriate:\n${
+            selectedChapter.selectedFeatures
+              .map(id => {
+                const feature = MYST_FEATURES_DATA.find(f => f.id === id);
+                return feature ? `- ${feature.name}: ${feature.syntax}` : null;
+              })
+              .filter(Boolean)
+              .join('\n')
+          }`
+        : '';
+
+      const wordCountInstruction = `\n\nTarget word count: approximately ${targetWordCount} words. Ensure the content is comprehensive and detailed to meet this target.`;
+
+      const systemPromptOverride = selectedChapter.systemPrompt || '';
+
+      // Determine which model to use - chapter's selected model, or provider's default, or global default
+      let effectiveModel = selectedChapter.selectedModel || aiConfig.selectedModel;
+      if (selectedChapter.selectedProvider && !selectedChapter.selectedModel) {
+        // If chapter has a provider but no specific model, check if provider config has a default
+        const provConfig = getProviderConfig(selectedChapter.selectedProvider);
+        if (provConfig?.selectedModel) {
+          effectiveModel = provConfig.selectedModel;
+        }
+      }
+
+      console.log('Making API request to /api/ai/generate...');
+      console.log('Using model:', effectiveModel);
+
+      const response = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: chapterProvider,
+          apiKey: effectiveApiKey,
+          model: effectiveModel,
+          prompt: `Write comprehensive content for the chapter "${selectedChapter.title}"${
+            chapterDescription ? `: ${chapterDescription}` : selectedChapter.description ? `: ${selectedChapter.description}` : ''
+          }${featuresContext}${wordCountInstruction}`,
+          type: 'chapter',
+          context: {
+            bookTitle: bookConfig.title,
+            bookDescription: bookConfig.description,
+            chapterTitle: selectedChapter.title,
+            systemPromptOverride,
+            targetWordCount,
+          },
+        }),
+      });
+
+      console.log('API response status:', response.status);
+      const data = await response.json();
+      console.log('API response data:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate content');
+      }
+
+      setEditedContent(data.content);
+      // Save the word count setting to the chapter
+      updateChapterWordCount(selectedChapter.id, targetWordCount);
+    } catch (error) {
+      console.error('Generation error:', error);
+      alert(error instanceof Error ? error.message : 'Failed to generate content');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // Format with AI - adds MyST features and formatting to manual content
+  const formatWithAI = async () => {
+    if (!selectedChapter || !editedContent) return;
+
+    // Determine which provider and API key to use
+    const chapterProvider = selectedChapter.selectedProvider || aiConfig.provider;
+    let effectiveApiKey = aiConfig.apiKey;
+
+    // If chapter has a specific provider, use that provider's API key
+    if (selectedChapter.selectedProvider) {
+      const provConfig = getProviderConfig(selectedChapter.selectedProvider);
+      if (provConfig?.apiKey) {
+        effectiveApiKey = provConfig.apiKey;
+      }
+    }
+
+    if (!chapterProvider || !effectiveApiKey) {
+      alert('Please configure an AI provider and API key first. Click the gear icon to open Chapter Settings.');
+      return;
+    }
+
+    setIsFormatting(true);
+
+    try {
+      const featuresContext = selectedChapter.selectedFeatures?.length
+        ? `\n\nApply these MyST features where appropriate:\n${
+            selectedChapter.selectedFeatures
+              .map(id => {
+                const feature = MYST_FEATURES_DATA.find(f => f.id === id);
+                return feature ? `- ${feature.name}: ${feature.syntax}` : null;
+              })
+              .filter(Boolean)
+              .join('\n')
+          }`
+        : '';
+
+      // Determine which model to use
+      let effectiveModel = selectedChapter.selectedModel || aiConfig.selectedModel;
+      if (selectedChapter.selectedProvider && !selectedChapter.selectedModel) {
+        const provConfig = getProviderConfig(selectedChapter.selectedProvider);
+        if (provConfig?.selectedModel) {
+          effectiveModel = provConfig.selectedModel;
+        }
+      }
+
+      const response = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: chapterProvider,
+          apiKey: effectiveApiKey,
+          model: effectiveModel,
+          prompt: `Format and enhance the following content using MyST Markdown. Improve structure, add appropriate headings, apply MyST features like admonitions, code blocks, and other formatting. Keep the original meaning and information but make it more professional and well-structured.${featuresContext}
+
+Original content:
+${editedContent}`,
+          type: 'format',
+          context: {
+            bookTitle: bookConfig.title,
+            chapterTitle: selectedChapter.title,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to format content');
+      }
+
+      setEditedContent(data.content);
+    } catch (error) {
+      console.error('Formatting error:', error);
+      alert(error instanceof Error ? error.message : 'Failed to format content');
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
+  const saveChapter = async () => {
+    if (!selectedChapter || !bookConfig.github) return;
+
+    setIsSaving(true);
+    setSaveStatus('idle');
+    setSaveDetails(null);
+
+    try {
+      // Update local state
+      updateChapterContent(selectedChapter.id, editedContent);
+      updateChapterInputMode(selectedChapter.id, editorTab);
+
+      // Update on GitHub
+      const response = await fetch('/api/github/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: bookConfig.github.token,
+          username: bookConfig.github.username,
+          repoName: bookConfig.github.repoName,
+          chapter: {
+            ...selectedChapter,
+            content: editedContent,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to save to GitHub');
+      }
+
+      // Store the verification details
+      setSaveDetails({
+        commitUrl: data.commitUrl,
+        fileUrl: data.fileUrl,
+        commitSha: data.commitSha,
+        verified: data.verified,
+        message: data.message,
+        actionsUrl: data.actionsUrl,
+        workflowTriggered: data.workflowTriggered,
+        workflowRunUrl: data.workflowRunUrl,
+      });
+
+      // Set status based on verification
+      if (data.verified) {
+        setSaveStatus('verified');
+      } else {
+        setSaveStatus('unverified');
+      }
+
+      // Clear status after 10 seconds (longer to give time to see details)
+      setTimeout(() => {
+        setSaveStatus('idle');
+        setSaveDetails(null);
+      }, 10000);
+    } catch (error) {
+      console.error('Save error:', error);
+      setSaveStatus('error');
+      setSaveDetails({
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleBack = () => {
+    setCurrentStep('generate-book');
+  };
+
+  // Calculate book analytics
+  const calculateBookAnalytics = useCallback(() => {
+    const countWords = (text: string) => text.trim().split(/\s+/).filter(w => w.length > 0).length;
+
+    // Count top-level chapters only
+    const topLevelChapters = bookConfig.tableOfContents.chapters.length;
+    const topLevelWithContent = bookConfig.tableOfContents.chapters.filter(ch => ch.content).length;
+
+    // Count all sections (chapters + sub-chapters)
+    const countAllSections = (chapters: Chapter[]): { total: number; withContent: number; words: number } => {
+      let total = 0;
+      let withContent = 0;
+      let words = 0;
+      for (const chapter of chapters) {
+        total++;
+        if (chapter.content) {
+          withContent++;
+          words += countWords(chapter.content);
+        }
+        if (chapter.children) {
+          const childStats = countAllSections(chapter.children);
+          total += childStats.total;
+          withContent += childStats.withContent;
+          words += childStats.words;
+        }
+      }
+      return { total, withContent, words };
+    };
+
+    // Count sub-chapters only
+    const countSubChapters = (chapters: Chapter[]): { total: number; withContent: number } => {
+      let total = 0;
+      let withContent = 0;
+      for (const chapter of chapters) {
+        if (chapter.children) {
+          total += chapter.children.length;
+          withContent += chapter.children.filter(ch => ch.content).length;
+          const nested = countSubChapters(chapter.children);
+          total += nested.total;
+          withContent += nested.withContent;
+        }
+      }
+      return { total, withContent };
+    };
+
+    const allStats = countAllSections(bookConfig.tableOfContents.chapters);
+    const subChapterStats = countSubChapters(bookConfig.tableOfContents.chapters);
+    const avgWordsPerSection = allStats.withContent > 0 ? Math.round(allStats.words / allStats.withContent) : 0;
+    const estimatedReadingTime = Math.ceil(allStats.words / 200); // ~200 words per minute
+
+    return {
+      // Top-level chapters
+      chapters: topLevelChapters,
+      chaptersWithContent: topLevelWithContent,
+      chaptersRemaining: topLevelChapters - topLevelWithContent,
+      // Sub-chapters
+      subChapters: subChapterStats.total,
+      subChaptersWithContent: subChapterStats.withContent,
+      subChaptersRemaining: subChapterStats.total - subChapterStats.withContent,
+      // All sections combined
+      totalSections: allStats.total,
+      sectionsWithContent: allStats.withContent,
+      sectionsRemaining: allStats.total - allStats.withContent,
+      // Content stats
+      words: allStats.words,
+      avgWordsPerSection,
+      estimatedReadingTime,
+      completionPercentage: allStats.total > 0 ? Math.round((allStats.withContent / allStats.total) * 100) : 0,
+    };
+  }, [bookConfig.tableOfContents.chapters]);
+
+  const renderChapterRows = (
+    chapters: Chapter[],
+    depth = 0,
+    parentId?: string
+  ): React.ReactNode => {
+    return chapters.map((chapter, index) => {
+      const hasChildren = chapter.children && chapter.children.length > 0;
+      const isExpanded = expandedChapters.has(chapter.id);
+      const isSelected = selectedChapter?.id === chapter.id;
+
+      return (
+        <div key={chapter.id}>
+          <ChapterRow
+            chapter={chapter}
+            depth={depth}
+            index={index}
+            totalSiblings={chapters.length}
+            parentId={parentId}
+            isExpanded={isExpanded}
+            isSelected={isSelected}
+            onSelect={selectChapter}
+            onToggleExpand={toggleExpanded}
+            onMoveUp={handleMoveUp}
+            onMoveDown={handleMoveDown}
+            onDelete={handleDelete}
+            onAddSubChapter={handleAddSubChapter}
+            onOpenFeatures={handleOpenFeatures}
+            onOpenSystemPrompt={handleOpenSystemPrompt}
+          />
+          {hasChildren && isExpanded && (
+            <div>{renderChapterRows(chapter.children!, depth + 1, chapter.id)}</div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  const renderFeaturesModal = () => {
+    if (modalType !== 'features' || !modalChapter) return null;
+
+    const categories: MystFeatureCategory[] = [
+      'admonitions', 'ui-components', 'interactive-code', 'exercises',
+      'math', 'diagrams', 'code', 'figures', 'tables', 'layout', 'references', 'content', 'proofs-theorems'
+    ];
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Select Features for: {modalChapter.title}
+            </h3>
+            <button
+              onClick={() => setModalType('none')}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto p-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {categories.map(category => {
+                const features = getFeaturesByCategory(category);
+                if (features.length === 0) return null;
+
+                return (
+                  <div key={category} className="space-y-2">
+                    <h4 className="font-medium text-gray-900 dark:text-white capitalize">
+                      {category.replace('-', ' ')}
+                    </h4>
+                    <div className="space-y-1">
+                      {features.map(feature => {
+                        const isSelected = modalChapter.selectedFeatures?.includes(feature.id);
+                        return (
+                          <button
+                            key={feature.id}
+                            onClick={() => handleToggleFeature(feature.id)}
+                            className={`
+                              w-full text-left p-2 rounded-lg text-sm transition-colors
+                              ${isSelected
+                                ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700'
+                                : 'bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700'
+                              }
+                              border
+                            `}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium">{feature.name}</span>
+                              {isSelected && <Check className="h-4 w-4 text-purple-600" />}
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                              {feature.description}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <button
+              onClick={() => setModalType('none')}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSystemPromptModal = () => {
+    if (modalType !== 'system-prompt' || !modalChapter) return null;
+
+    const selectedModelInfo = providerModels.find(m => m.id === tempSelectedModel);
+    const isGeminiSelected = selectedModelInfo?.provider === 'gemini' || tempSelectedProvider === 'gemini';
+    const providers: AIProvider[] = ['claude', 'openai', 'gemini', 'openrouter'];
+
+    const getProviderLabel = (provider: AIProvider): string => {
+      switch (provider) {
+        case 'claude': return 'Claude (Anthropic)';
+        case 'openai': return 'OpenAI';
+        case 'gemini': return 'Gemini (Google)';
+        case 'openrouter': return 'OpenRouter';
+        default: return provider;
+      }
+    };
+
+    const getProviderConfigured = (provider: AIProvider): boolean => {
+      const config = getProviderConfig(provider);
+      return !!config?.isConfigured;
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-auto">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Chapter Settings: {modalChapter.title}
+            </h3>
+            <button
+              onClick={() => setModalType('none')}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-6">
+            {/* AI Provider Selection */}
+            <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+              <h4 className="font-medium text-gray-900 dark:text-white mb-3 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-purple-600" />
+                AI Provider for This Chapter
+              </h4>
+
+              {/* Provider Selection */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Select Provider
+                  </label>
+                  <select
+                    value={tempSelectedProvider || ''}
+                    onChange={(e) => handleProviderChange(e.target.value as AIProvider || undefined)}
+                    className="w-full p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  >
+                    <option value="">Use Default ({aiConfig.provider ? getProviderLabel(aiConfig.provider) : 'Not Set'})</option>
+                    {providers.map(provider => (
+                      <option key={provider} value={provider}>
+                        {getProviderLabel(provider)} {getProviderConfigured(provider) ? '✓' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* API Key Input - Show when a specific provider is selected */}
+                {tempSelectedProvider && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      API Key for {getProviderLabel(tempSelectedProvider)}
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={tempProviderApiKey}
+                        onChange={(e) => setTempProviderApiKey(e.target.value)}
+                        placeholder={`Enter ${tempSelectedProvider} API key...`}
+                        className="flex-1 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      />
+                      <button
+                        onClick={() => loadModelsForProvider(tempSelectedProvider, tempProviderApiKey)}
+                        disabled={!tempProviderApiKey || isLoadingModels}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {isLoadingModels ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-4 w-4" />
+                        )}
+                        Load Models
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      Your API key is stored securely in session storage (clears when you close the tab).
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Model Selection */}
+            <div>
+              <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                AI Model for This Chapter
+              </label>
+              <select
+                value={tempSelectedModel || ''}
+                onChange={(e) => setTempSelectedModel(e.target.value || null)}
+                disabled={providerModels.length === 0 && !aiConfig.selectedModel}
+                className="w-full p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+              >
+                <option value="">
+                  {providerModels.length === 0 && !tempSelectedProvider
+                    ? `Use Default Model (${aiConfig.selectedModel || 'Not Set'})`
+                    : providerModels.length === 0
+                      ? 'Enter API key and load models first'
+                      : `Use Default Model (${aiConfig.selectedModel || 'Not Set'})`
+                  }
+                </option>
+                {providerModels.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Override the default model for generating this chapter&apos;s content.
+              </p>
+
+              {/* Gemini Special Note */}
+              {isGeminiSelected && (
+                <div className="mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-purple-900 dark:text-purple-300">
+                        Gemini Multimodal Capabilities
+                      </p>
+                      <p className="text-xs text-purple-700 dark:text-purple-400 mt-1">
+                        Gemini models can generate both text and images as part of the regular output.
+                        This is powerful for creating illustrated content, diagrams, and visual explanations
+                        directly within your chapter.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* System Prompt */}
+            <div>
+              <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+                Custom System Prompt
+              </label>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Customize the AI system prompt for this specific chapter. This will override the default prompt when generating content.
+              </p>
+              <textarea
+                value={tempSystemPrompt}
+                onChange={(e) => setTempSystemPrompt(e.target.value)}
+                placeholder="Enter a custom system prompt for AI generation..."
+                className="w-full h-48 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+            <button
+              onClick={() => setModalType('none')}
+              className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveSystemPrompt}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+            >
+              Save Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAddChapterModal = () => {
+    if (modalType !== 'add-chapter') return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {addChapterParentId ? 'Add Sub-Chapter' : 'Add Chapter'}
+            </h3>
+            <button
+              onClick={() => setModalType('none')}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Chapter Title
+            </label>
+            <input
+              type="text"
+              value={newChapterTitle}
+              onChange={(e) => setNewChapterTitle(e.target.value)}
+              placeholder="Enter chapter title..."
+              className="w-full p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              onKeyDown={(e) => e.key === 'Enter' && handleAddNewChapter()}
+            />
+          </div>
+
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2">
+            <button
+              onClick={() => setModalType('none')}
+              className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg font-medium"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAddNewChapter}
+              disabled={!newChapterTitle.trim()}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Add Chapter
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAnalyticsModal = () => {
+    if (modalType !== 'analytics') return null;
+
+    const analytics = calculateBookAnalytics();
+
+    // Calculate per-chapter stats
+    const getChapterStats = (chapters: Chapter[], depth = 0): Array<{ chapter: Chapter; words: number; depth: number; isChapter: boolean }> => {
+      const stats: Array<{ chapter: Chapter; words: number; depth: number; isChapter: boolean }> = [];
+      for (const chapter of chapters) {
+        const words = chapter.content ? chapter.content.trim().split(/\s+/).filter(w => w.length > 0).length : 0;
+        stats.push({ chapter, words, depth, isChapter: depth === 0 });
+        if (chapter.children) {
+          stats.push(...getChapterStats(chapter.children, depth + 1));
+        }
+      }
+      return stats;
+    };
+
+    const chapterStats = getChapterStats(bookConfig.tableOfContents.chapters);
+
+    // Calculate estimated book length in pages (assuming ~250 words per page)
+    const estimatedPages = Math.ceil(analytics.words / 250);
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-purple-600" />
+              Book Analytics
+            </h3>
+            <button
+              onClick={() => setModalType('none')}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto p-6">
+            {/* Structure Overview */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">Book Structure</h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">Chapters</p>
+                  <p className="text-3xl font-bold text-blue-700 dark:text-blue-300">{analytics.chapters}</p>
+                  <p className="text-xs text-blue-500 dark:text-blue-400 mt-1">
+                    {analytics.chaptersWithContent} complete, {analytics.chaptersRemaining} remaining
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 dark:from-indigo-900/20 dark:to-indigo-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-indigo-600 dark:text-indigo-400 font-medium">Sub-chapters</p>
+                  <p className="text-3xl font-bold text-indigo-700 dark:text-indigo-300">{analytics.subChapters}</p>
+                  <p className="text-xs text-indigo-500 dark:text-indigo-400 mt-1">
+                    {analytics.subChaptersWithContent} complete, {analytics.subChaptersRemaining} remaining
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-violet-50 to-violet-100 dark:from-violet-900/20 dark:to-violet-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-violet-600 dark:text-violet-400 font-medium">Total Sections</p>
+                  <p className="text-3xl font-bold text-violet-700 dark:text-violet-300">{analytics.totalSections}</p>
+                  <p className="text-xs text-violet-500 dark:text-violet-400 mt-1">
+                    {analytics.sectionsWithContent} complete, {analytics.sectionsRemaining} remaining
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Content Stats */}
+            <div className="mb-6">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">Content Statistics</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-purple-600 dark:text-purple-400 font-medium">Total Words</p>
+                  <p className="text-2xl font-bold text-purple-700 dark:text-purple-300">{analytics.words.toLocaleString()}</p>
+                </div>
+                <div className="bg-gradient-to-br from-amber-50 to-amber-100 dark:from-amber-900/20 dark:to-amber-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-amber-600 dark:text-amber-400 font-medium">Reading Time</p>
+                  <p className="text-2xl font-bold text-amber-700 dark:text-amber-300">
+                    {analytics.estimatedReadingTime >= 60
+                      ? `${Math.floor(analytics.estimatedReadingTime / 60)}h ${analytics.estimatedReadingTime % 60}m`
+                      : `${analytics.estimatedReadingTime} min`
+                    }
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-teal-50 to-teal-100 dark:from-teal-900/20 dark:to-teal-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-teal-600 dark:text-teal-400 font-medium">Est. Pages</p>
+                  <p className="text-2xl font-bold text-teal-700 dark:text-teal-300">{estimatedPages}</p>
+                </div>
+                <div className="bg-gradient-to-br from-rose-50 to-rose-100 dark:from-rose-900/20 dark:to-rose-800/20 p-4 rounded-xl">
+                  <p className="text-sm text-rose-600 dark:text-rose-400 font-medium">Avg Words/Section</p>
+                  <p className="text-2xl font-bold text-rose-700 dark:text-rose-300">{analytics.avgWordsPerSection.toLocaleString()}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-xl">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Overall Completion</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-white">{analytics.completionPercentage}%</span>
+              </div>
+              <div className="w-full h-4 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full transition-all duration-500"
+                  style={{ width: `${analytics.completionPercentage}%` }}
+                />
+              </div>
+              <div className="flex justify-between mt-2 text-xs text-gray-500 dark:text-gray-400">
+                <span>{analytics.sectionsWithContent} sections complete</span>
+                <span>{analytics.sectionsRemaining} sections remaining</span>
+              </div>
+            </div>
+
+            {/* Per-Chapter Stats */}
+            <div>
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 uppercase tracking-wide">Section Breakdown</h4>
+              <div className="space-y-1 max-h-64 overflow-auto border border-gray-200 dark:border-gray-600 rounded-lg">
+                {chapterStats.map(({ chapter, words, depth, isChapter }) => (
+                  <div
+                    key={chapter.id}
+                    className={`flex items-center justify-between p-3 ${
+                      isChapter
+                        ? 'bg-gray-100 dark:bg-gray-700 font-medium'
+                        : 'bg-white dark:bg-gray-800'
+                    } ${depth > 0 ? 'border-l-2 border-gray-300 dark:border-gray-600' : ''}`}
+                    style={{ paddingLeft: `${12 + depth * 20}px` }}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isChapter ? (
+                        <BookOpen className={`h-4 w-4 flex-shrink-0 ${words > 0 ? 'text-green-500' : 'text-gray-400'}`} />
+                      ) : (
+                        <FileText className={`h-4 w-4 flex-shrink-0 ${words > 0 ? 'text-green-500' : 'text-gray-400'}`} />
+                      )}
+                      <span className={`text-sm truncate ${isChapter ? 'text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'}`}>
+                        {chapter.title}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-4 text-sm flex-shrink-0">
+                      {words > 0 ? (
+                        <>
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">
+                            {words.toLocaleString()} words
+                          </span>
+                          <span className="text-gray-500 dark:text-gray-400 text-xs">
+                            ~{Math.ceil(words / 200)} min
+                          </span>
+                          <Check className="h-4 w-4 text-green-500" />
+                        </>
+                      ) : (
+                        <span className="text-gray-400 dark:text-gray-500 italic">Not written</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-end">
+            <button
+              onClick={() => setModalType('none')}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+            Chapter Editor
+          </h2>
+          <p className="text-gray-600 dark:text-gray-400">
+            Manage chapters, generate content with AI, and customize features.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setModalType('analytics')}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50 rounded-lg font-medium transition-colors"
+          >
+            <BarChart3 className="h-4 w-4" />
+            Analytics
+          </button>
+          <button
+            onClick={() => {
+              setAddChapterParentId(null);
+              setNewChapterTitle('');
+              setModalType('add-chapter');
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
+          >
+            <Plus className="h-4 w-4" />
+            Add Chapter
+          </button>
+        </div>
+      </div>
+
+      {/* Chapter/Sub-chapter Generation Info */}
+      <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 flex items-start gap-3">
+        <Info className="h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm text-blue-800 dark:text-blue-300 font-medium">Generation Inheritance</p>
+          <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+            When you generate content for a chapter, all sub-chapters will also be generated using the parent&apos;s settings.
+            To generate only a specific sub-chapter, select it directly from the list.
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-6 min-h-[600px]">
+        {/* Chapter Table */}
+        <div className="w-1/2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+          <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="font-semibold text-gray-900 dark:text-white">Chapters</h3>
+          </div>
+          <div className="flex-1 overflow-auto">
+            {bookConfig.tableOfContents.chapters.length > 0 ? (
+              renderChapterRows(bookConfig.tableOfContents.chapters)
+            ) : (
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>No chapters yet. Click &quot;Add Chapter&quot; to get started.</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Editor Area */}
+        <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+          {selectedChapter ? (
+            <>
+              {/* Chapter Header */}
+              <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">
+                      {selectedChapter.title}
+                    </h3>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {selectedChapter.selectedProvider && (
+                        <span className="px-1.5 py-0.5 text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded">
+                          {selectedChapter.selectedProvider === 'claude' ? 'Claude' :
+                           selectedChapter.selectedProvider === 'openai' ? 'OpenAI' :
+                           selectedChapter.selectedProvider === 'gemini' ? 'Gemini' :
+                           selectedChapter.selectedProvider === 'openrouter' ? 'OpenRouter' :
+                           selectedChapter.selectedProvider}
+                        </span>
+                      )}
+                      {selectedChapter.selectedModel && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          {selectedChapter.selectedModel}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {/* View Mode Toggle */}
+                  <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+                    <button
+                      onClick={() => setViewMode('edit')}
+                      className={`
+                        px-3 py-1.5 text-sm font-medium flex items-center gap-1
+                        ${viewMode === 'edit'
+                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }
+                      `}
+                    >
+                      <Edit3 className="h-4 w-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setViewMode('preview')}
+                      className={`
+                        px-3 py-1.5 text-sm font-medium flex items-center gap-1
+                        ${viewMode === 'preview'
+                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                        }
+                      `}
+                    >
+                      <Eye className="h-4 w-4" />
+                      Preview
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Content Tabs */}
+              <div className="flex border-b border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => setEditorTab('ai-generate')}
+                  className={`
+                    flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2
+                    ${editorTab === 'ai-generate'
+                      ? 'text-purple-700 dark:text-purple-300 border-b-2 border-purple-600 bg-purple-50 dark:bg-purple-900/10'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }
+                  `}
+                >
+                  <Wand2 className="h-4 w-4" />
+                  AI Generate
+                </button>
+                <button
+                  onClick={() => setEditorTab('manual-write')}
+                  className={`
+                    flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2
+                    ${editorTab === 'manual-write'
+                      ? 'text-blue-700 dark:text-blue-300 border-b-2 border-blue-600 bg-blue-50 dark:bg-blue-900/10'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }
+                  `}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Manual Write
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              <div className="flex-1 overflow-auto p-4">
+                {editorTab === 'ai-generate' ? (
+                  <div className="space-y-4">
+                    {/* Description Input */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Chapter Description / Prompt
+                      </label>
+                      <textarea
+                        value={chapterDescription}
+                        onChange={(e) => setChapterDescription(e.target.value)}
+                        placeholder="Describe what this chapter should cover..."
+                        className="w-full h-24 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      />
+                    </div>
+
+                    {/* Word Count Setting */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Target Word Count
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min="500"
+                          max="10000"
+                          step="500"
+                          value={targetWordCount}
+                          onChange={(e) => setTargetWordCount(Number(e.target.value))}
+                          className="flex-1 h-2 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Hash className="h-4 w-4 text-gray-400" />
+                          <input
+                            type="number"
+                            min="100"
+                            max="20000"
+                            value={targetWordCount}
+                            onChange={(e) => setTargetWordCount(Math.max(100, Math.min(20000, Number(e.target.value))))}
+                            className="w-24 px-2 py-1 rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm text-center"
+                          />
+                          <span className="text-sm text-gray-500 dark:text-gray-400">words</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Estimated reading time: ~{Math.ceil(targetWordCount / 200)} minutes
+                      </p>
+                    </div>
+
+                    {/* Generate Button */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={generateChapterContent}
+                        disabled={isGenerating}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {isGenerating ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="h-4 w-4" />
+                            Generate Content
+                          </>
+                        )}
+                      </button>
+                      {editedContent && (
+                        <button
+                          onClick={generateChapterContent}
+                          disabled={isGenerating}
+                          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Regenerate
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Selected Features Display */}
+                    {selectedChapter.selectedFeatures && selectedChapter.selectedFeatures.length > 0 && (
+                      <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                        <p className="text-sm font-medium text-purple-700 dark:text-purple-300 mb-2">
+                          Selected Features ({selectedChapter.selectedFeatures.length}):
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedChapter.selectedFeatures.map(featureId => {
+                            const feature = MYST_FEATURES_DATA.find(f => f.id === featureId);
+                            return feature ? (
+                              <span
+                                key={featureId}
+                                className="px-2 py-0.5 text-xs bg-purple-200 dark:bg-purple-800 text-purple-800 dark:text-purple-200 rounded"
+                              >
+                                {feature.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Generated Content */}
+                    {viewMode === 'edit' ? (
+                      <textarea
+                        value={editedContent}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        placeholder="Generated content will appear here..."
+                        className="w-full h-64 p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    ) : (
+                      <div className="w-full h-64 p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">
+                        <MystPreview content={editedContent} />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Write your chapter content directly in MyST Markdown
+                      </label>
+                      {editedContent && (
+                        <button
+                          onClick={formatWithAI}
+                          disabled={isFormatting}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                          title="Enhance your content with MyST formatting and selected features"
+                        >
+                          {isFormatting ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Formatting...
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="h-4 w-4" />
+                              Format with AI
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Info about Format with AI */}
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                      Write your content, then use &quot;Format with AI&quot; to enhance it with MyST features and professional formatting.
+                    </p>
+
+                    {/* Selected Features for formatting */}
+                    {selectedChapter.selectedFeatures && selectedChapter.selectedFeatures.length > 0 && (
+                      <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg mb-3 text-xs">
+                        <span className="font-medium text-blue-700 dark:text-blue-300">
+                          Features to apply:
+                        </span>
+                        <span className="text-blue-600 dark:text-blue-400 ml-1">
+                          {selectedChapter.selectedFeatures.map(id => {
+                            const feature = MYST_FEATURES_DATA.find(f => f.id === id);
+                            return feature?.name;
+                          }).filter(Boolean).join(', ')}
+                        </span>
+                      </div>
+                    )}
+
+                    {viewMode === 'edit' ? (
+                      <textarea
+                        value={editedContent}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        placeholder="Write your chapter content here using MyST Markdown format..."
+                        className="flex-1 w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    ) : (
+                      <div className="flex-1 w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">
+                        <MystPreview content={editedContent} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Save Button */}
+              <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-700/50">
+                <div className="text-sm flex-1 mr-4">
+                  {saveStatus === 'verified' && saveDetails && (
+                    <div className="text-green-600 dark:text-green-400">
+                      <div className="flex items-center gap-1 font-medium">
+                        <Check className="h-4 w-4" />
+                        Verified: Saved to GitHub
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-1 text-xs">
+                        {saveDetails.fileUrl && (
+                          <a
+                            href={saveDetails.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            View File
+                          </a>
+                        )}
+                        {saveDetails.commitUrl && (
+                          <a
+                            href={saveDetails.commitUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            View Commit
+                          </a>
+                        )}
+                        {saveDetails.commitSha && (
+                          <span className="text-gray-500 dark:text-gray-400">
+                            SHA: {saveDetails.commitSha.slice(0, 7)}
+                          </span>
+                        )}
+                      </div>
+                      {/* Build Status */}
+                      <div className="mt-2 pt-2 border-t border-green-200 dark:border-green-800">
+                        {saveDetails.workflowTriggered ? (
+                          <div className="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-2">
+                            <div className="flex items-center gap-2">
+                              <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                              <span className="text-blue-700 dark:text-blue-300 text-xs font-medium">
+                                Rebuilding your book...
+                              </span>
+                              {saveDetails.workflowRunUrl && (
+                                <a
+                                  href={saveDetails.workflowRunUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline text-xs ml-auto"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  View Build
+                                </a>
+                              )}
+                            </div>
+                            <p className="text-blue-600 dark:text-blue-400 text-xs mt-1">
+                              Your live book will update in 1-2 minutes once the build completes.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-2">
+                            <div className="flex items-center gap-2">
+                              <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                              <span className="text-yellow-700 dark:text-yellow-300 text-xs font-medium">
+                                Build not detected yet
+                              </span>
+                              {saveDetails.actionsUrl && (
+                                <a
+                                  href={saveDetails.actionsUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline text-xs ml-auto"
+                                >
+                                  <ExternalLink className="h-3 w-3" />
+                                  Check Actions
+                                </a>
+                              )}
+                            </div>
+                            <p className="text-yellow-600 dark:text-yellow-400 text-xs mt-1">
+                              The build may start shortly. Your book will update in 1-2 minutes.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {saveStatus === 'unverified' && saveDetails && (
+                    <div className="text-yellow-600 dark:text-yellow-400">
+                      <div className="flex items-center gap-1 font-medium">
+                        <AlertTriangle className="h-4 w-4" />
+                        Saved but verification failed
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-1 text-xs">
+                        {saveDetails.fileUrl && (
+                          <a
+                            href={saveDetails.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                            Check File
+                          </a>
+                        )}
+                        <span className="text-gray-500 dark:text-gray-400">
+                          Please verify manually on GitHub
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {saveStatus === 'saved' && (
+                    <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <Check className="h-4 w-4" />
+                      Saved to GitHub
+                    </span>
+                  )}
+                  {saveStatus === 'error' && (
+                    <div className="text-red-600 dark:text-red-400">
+                      <div className="flex items-center gap-1 font-medium">
+                        <X className="h-4 w-4" />
+                        Failed to save
+                      </div>
+                      {saveDetails?.error && (
+                        <div className="text-xs mt-1 text-red-500 dark:text-red-400">
+                          {saveDetails.error}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={saveChapter}
+                  disabled={isSaving || !editedContent}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save to GitHub
+                    </>
+                  )}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
+              <div className="text-center">
+                <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Select a chapter from the list to edit</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Navigation */}
+      <div className="flex justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
+        <button
+          onClick={handleBack}
+          className="flex items-center gap-2 px-6 py-3 rounded-lg font-semibold text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          Back to Overview
+        </button>
+        {bookConfig.github && (
+          <a
+            href={`https://${bookConfig.github.username}.github.io/${bookConfig.github.repoName}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-6 py-3 rounded-lg font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors"
+          >
+            View Live Book
+          </a>
+        )}
+      </div>
+
+      {/* Modals */}
+      {renderFeaturesModal()}
+      {renderSystemPromptModal()}
+      {renderAddChapterModal()}
+      {renderAnalyticsModal()}
+    </div>
+  );
+}

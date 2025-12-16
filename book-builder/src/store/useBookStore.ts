@@ -106,6 +106,7 @@ interface BookStore {
   setBookTitle: (title: string) => void;
   setBookDescription: (description: string) => void;
   setBookAuthor: (author: string) => void;
+  setBookCoverImage: (coverImage: string) => void;
   setTableOfContents: (chapters: Chapter[]) => void;
   updateChapter: (chapterId: string, updates: Partial<Chapter>) => void;
   updateChapterContent: (chapterId: string, content: string) => void;
@@ -280,6 +281,10 @@ export const useBookStore = create<BookStore>()(
       setBookAuthor: (author) =>
         set((state) => ({
           bookConfig: { ...state.bookConfig, author },
+        })),
+      setBookCoverImage: (coverImage) =>
+        set((state) => ({
+          bookConfig: { ...state.bookConfig, coverImage },
         })),
       setTableOfContents: (chapters) =>
         set((state) => ({

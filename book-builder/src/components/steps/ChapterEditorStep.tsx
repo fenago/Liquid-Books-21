@@ -34,10 +34,11 @@ import {
   Play,
   ExternalLink,
   AlertTriangle,
+  Image,
 } from 'lucide-react';
 
 type EditorTab = 'ai-generate' | 'manual-write';
-type ModalType = 'none' | 'features' | 'system-prompt' | 'add-chapter' | 'analytics';
+type ModalType = 'none' | 'features' | 'system-prompt' | 'add-chapter' | 'analytics' | 'cover-image';
 
 interface ChapterRowProps {
   chapter: Chapter;
@@ -216,6 +217,7 @@ export function ChapterEditorStep() {
     updateChapterProvider,
     setProviderConfig,
     getProviderConfig,
+    setBookCoverImage,
   } = useBookStore();
 
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
@@ -250,6 +252,7 @@ export function ChapterEditorStep() {
   const [providerModels, setProviderModels] = useState<Array<{ id: string; name: string; provider: AIProvider }>>([]);
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [addChapterParentId, setAddChapterParentId] = useState<string | null>(null);
+  const [tempCoverImageUrl, setTempCoverImageUrl] = useState('');
 
   const toggleExpanded = useCallback((chapterId: string) => {
     setExpandedChapters(prev => {
@@ -1151,6 +1154,94 @@ ${editedContent}`,
     );
   };
 
+  const renderCoverImageModal = () => {
+    if (modalType !== 'cover-image') return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Image className="h-5 w-5 text-purple-600" />
+              Book Cover Image
+            </h3>
+            <button
+              onClick={() => setModalType('none')}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Cover Image URL
+              </label>
+              <input
+                type="url"
+                value={tempCoverImageUrl}
+                onChange={(e) => setTempCoverImageUrl(e.target.value)}
+                placeholder="https://example.com/cover.jpg"
+                className="w-full p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                Enter a URL to an image for your book cover. Recommended aspect ratio: 2:3 (e.g., 400x600 pixels).
+              </p>
+            </div>
+
+            {/* Preview */}
+            {tempCoverImageUrl && (
+              <div className="border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Preview:</p>
+                <div className="flex justify-center">
+                  <img
+                    src={tempCoverImageUrl}
+                    alt="Cover preview"
+                    className="max-h-48 rounded-lg shadow-md object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between">
+            <button
+              onClick={() => {
+                setBookCoverImage('');
+                setTempCoverImageUrl('');
+                setModalType('none');
+              }}
+              className="px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg font-medium"
+            >
+              Remove Cover
+            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setModalType('none')}
+                className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setBookCoverImage(tempCoverImageUrl);
+                  setModalType('none');
+                }}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium"
+              >
+                Save Cover
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderAnalyticsModal = () => {
     if (modalType !== 'analytics') return null;
 
@@ -1371,8 +1462,50 @@ ${editedContent}`,
       <div className="flex gap-6 min-h-[600px]">
         {/* Chapter Table */}
         <div className="w-1/2 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
-          <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="font-semibold text-gray-900 dark:text-white">Chapters</h3>
+          {/* Book Header with Title and Cover */}
+          <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 px-4 py-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-start gap-3">
+              {/* Cover Image */}
+              <button
+                onClick={() => {
+                  setTempCoverImageUrl(bookConfig.coverImage || '');
+                  setModalType('cover-image');
+                }}
+                className="relative flex-shrink-0 w-16 h-20 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 hover:border-purple-400 dark:hover:border-purple-500 bg-white dark:bg-gray-700 overflow-hidden transition-colors group"
+                title="Set book cover"
+              >
+                {bookConfig.coverImage ? (
+                  <img
+                    src={bookConfig.coverImage}
+                    alt="Book cover"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 group-hover:text-purple-500">
+                    <Image className="h-5 w-5" />
+                    <span className="text-[9px] mt-0.5">Cover</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <Edit3 className="h-4 w-4 text-white" />
+                </div>
+              </button>
+              {/* Title and Info */}
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold text-lg text-gray-900 dark:text-white truncate">
+                  {bookConfig.title || 'Untitled Book'}
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  by {bookConfig.author || 'Unknown Author'}
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  {bookConfig.tableOfContents.chapters.length} chapters
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+            <h4 className="text-sm font-medium text-gray-600 dark:text-gray-400">Table of Contents</h4>
           </div>
           <div className="flex-1 overflow-auto">
             {bookConfig.tableOfContents.chapters.length > 0 ? (
@@ -1847,6 +1980,7 @@ ${editedContent}`,
       {renderSystemPromptModal()}
       {renderAddChapterModal()}
       {renderAnalyticsModal()}
+      {renderCoverImageModal()}
     </div>
   );
 }

@@ -245,6 +245,7 @@ export interface BookConfig {
   title: string;
   description: string;
   author: string;
+  coverImage?: string;  // URL to book cover image
   github?: {
     username: string;
     repoName: string;

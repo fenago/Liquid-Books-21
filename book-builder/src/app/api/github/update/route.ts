@@ -3,7 +3,7 @@ import { Octokit } from '@octokit/rest';
 import { Chapter } from '@/types';
 
 interface UpdateChapterRequest {
-  token: string;
+  token?: string;
   username: string;
   repoName: string;
   chapter: Chapter;
@@ -12,7 +12,10 @@ interface UpdateChapterRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: UpdateChapterRequest = await request.json();
-    const { token, username, repoName, chapter } = body;
+    const { token: providedToken, username, repoName, chapter } = body;
+
+    // Use provided token or fall back to environment variable
+    const token = providedToken || process.env.GITHUB_PAT;
 
     if (!token || !username || !repoName || !chapter) {
       return NextResponse.json(

@@ -505,6 +505,7 @@ export function ChapterEditorStep() {
     }
 
     setIsGenerating(true);
+    setEditedContent(''); // Clear content for streaming
     console.log('Starting generation...');
 
     try {
@@ -560,16 +561,67 @@ export function ChapterEditorStep() {
       });
 
       console.log('API response status:', response.status);
-      const data = await response.json();
-      console.log('API response data:', data);
+      console.log('Content-Type:', response.headers.get('content-type'));
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate content');
+      // Check if it's a streaming response
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('text/event-stream')) {
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body');
+        }
+
+        const decoder = new TextDecoder();
+        let accumulatedContent = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+
+                if (data.error) {
+                  throw new Error(data.error);
+                }
+
+                if (data.chunk) {
+                  accumulatedContent += data.chunk;
+                  setEditedContent(accumulatedContent);
+                }
+
+                if (data.done && data.content) {
+                  accumulatedContent = data.content;
+                  setEditedContent(accumulatedContent);
+                }
+              } catch (parseError) {
+                // Skip invalid JSON lines
+              }
+            }
+          }
+        }
+
+        // Save the word count setting to the chapter
+        updateChapterWordCount(selectedChapter.id, targetWordCount);
+      } else {
+        // Handle non-streaming response (other providers)
+        const data = await response.json();
+        console.log('API response data:', data);
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to generate content');
+        }
+
+        setEditedContent(data.content);
+        // Save the word count setting to the chapter
+        updateChapterWordCount(selectedChapter.id, targetWordCount);
       }
-
-      setEditedContent(data.content);
-      // Save the word count setting to the chapter
-      updateChapterWordCount(selectedChapter.id, targetWordCount);
     } catch (error) {
       console.error('Generation error:', error);
       alert(error instanceof Error ? error.message : 'Failed to generate content');

@@ -41,12 +41,15 @@ export async function POST(request: NextRequest) {
     }
 
     const systemPrompt = getSystemPrompt(type, context);
-    let content: string;
 
+    // Use streaming for Claude to avoid Netlify timeout
+    if (provider === 'claude') {
+      return streamWithClaude(apiKey, model, systemPrompt, prompt, type);
+    }
+
+    // Non-streaming for other providers (can add streaming later if needed)
+    let content: string;
     switch (provider) {
-      case 'claude':
-        content = await generateWithClaude(apiKey, model, systemPrompt, prompt, type);
-        break;
       case 'openai':
         content = await generateWithOpenAI(apiKey, model, systemPrompt, prompt, type);
         break;
@@ -130,48 +133,125 @@ Maintain consistency with the existing style and format.`;
   }
 }
 
-async function generateWithClaude(
+// Streaming response for Claude - prevents Netlify timeout
+function streamWithClaude(
   apiKey: string,
   model: string,
   systemPrompt: string,
   userPrompt: string,
   type: 'toc' | 'chapter' | 'content'
-): Promise<string> {
-  // Use reasonable token limits to avoid timeouts
-  // TOC needs less, chapters need more but not too much for Netlify timeout
-  const maxTokens = type === 'toc' ? 4096 : 8192;
+): Response {
+  const maxTokens = type === 'toc' ? 4096 : 16384;
 
-  console.log(`Calling Claude API with model: ${model}, maxTokens: ${maxTokens}`);
+  console.log(`Streaming Claude API with model: ${model}, maxTokens: ${maxTokens}`);
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: maxTokens,
+            stream: true,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userPrompt }],
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Claude API error:', response.status, errorText);
+          let errorMessage = `Claude API failed: ${response.status}`;
+          try {
+            const error = JSON.parse(errorText);
+            errorMessage = error.error?.message || errorMessage;
+          } catch {
+            errorMessage = `${errorMessage} - ${errorText.substring(0, 200)}`;
+          }
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMessage })}\n\n`));
+          controller.close();
+          return;
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'No response body' })}\n\n`));
+          controller.close();
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullContent = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') continue;
+
+              try {
+                const parsed = JSON.parse(data);
+
+                // Handle content_block_delta events
+                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                  fullContent += parsed.delta.text;
+                  // Send chunk to client
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`));
+                }
+
+                // Handle message_stop to send final content
+                if (parsed.type === 'message_stop') {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`));
+                }
+
+                // Handle errors
+                if (parsed.type === 'error') {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: parsed.error?.message || 'Stream error' })}\n\n`));
+                }
+              } catch {
+                // Skip invalid JSON lines
+              }
+            }
+          }
+        }
+
+        // Ensure we send the final content if message_stop wasn't received
+        if (fullContent && !buffer.includes('message_stop')) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`));
+        }
+
+        controller.close();
+      } catch (error) {
+        console.error('Stream error:', error);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: error instanceof Error ? error.message : 'Stream failed' })}\n\n`));
+        controller.close();
+      }
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    }),
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Claude API error:', response.status, errorText);
-    try {
-      const error = JSON.parse(errorText);
-      throw new Error(error.error?.message || `Claude API failed: ${response.status}`);
-    } catch {
-      throw new Error(`Claude API failed: ${response.status} - ${errorText.substring(0, 200)}`);
-    }
-  }
-
-  const data = await response.json();
-  console.log('Claude API response received, content length:', data.content?.[0]?.text?.length || 0);
-  return data.content[0].text;
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
 }
 
 async function generateWithOpenAI(

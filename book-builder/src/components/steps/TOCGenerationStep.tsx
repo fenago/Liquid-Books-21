@@ -81,14 +81,68 @@ Generate a logical, well-structured table of contents that covers all the topics
         }),
       });
 
-      const data = await response.json();
+      // Check if this is a streaming response (Claude)
+      const contentType = response.headers.get('content-type');
+      let content: string;
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate TOC');
+      if (contentType?.includes('text/event-stream')) {
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body');
+        }
+
+        const decoder = new TextDecoder();
+        let accumulatedContent = '';
+
+        setLoadingMessage('Receiving AI response...');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.error) {
+                  throw new Error(data.error);
+                }
+                if (data.chunk) {
+                  accumulatedContent += data.chunk;
+                }
+                if (data.done && data.content) {
+                  accumulatedContent = data.content;
+                }
+              } catch (parseError) {
+                // Skip invalid JSON lines (partial data)
+                if (parseError instanceof Error && parseError.message !== 'Unexpected end of JSON input') {
+                  if (parseError.message.includes('error')) {
+                    throw parseError;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        content = accumulatedContent;
+      } else {
+        // Non-streaming response (OpenAI, Gemini)
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to generate TOC');
+        }
+
+        content = data.content;
       }
 
       setLoadingMessage('Parsing response...');
-      const chapters = parseTOCResponse(data.content);
+      const chapters = parseTOCResponse(content);
       setTableOfContents(chapters);
       setMode('manual');
     } catch (err) {
@@ -156,14 +210,68 @@ Rules:
         }),
       });
 
-      const data = await response.json();
+      // Check if this is a streaming response (Claude)
+      const contentType = response.headers.get('content-type');
+      let content: string;
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to parse TOC');
+      if (contentType?.includes('text/event-stream')) {
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body');
+        }
+
+        const decoder = new TextDecoder();
+        let accumulatedContent = '';
+
+        setLoadingMessage('Receiving AI response...');
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.error) {
+                  throw new Error(data.error);
+                }
+                if (data.chunk) {
+                  accumulatedContent += data.chunk;
+                }
+                if (data.done && data.content) {
+                  accumulatedContent = data.content;
+                }
+              } catch (parseError) {
+                // Skip invalid JSON lines (partial data)
+                if (parseError instanceof Error && parseError.message !== 'Unexpected end of JSON input') {
+                  if (parseError.message.includes('error')) {
+                    throw parseError;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        content = accumulatedContent;
+      } else {
+        // Non-streaming response (OpenAI, Gemini)
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to parse TOC');
+        }
+
+        content = data.content;
       }
 
       setLoadingMessage('Parsing response...');
-      const chapters = parseTOCResponse(data.content);
+      const chapters = parseTOCResponse(content);
       setTableOfContents(chapters);
       setMode('manual');
     } catch (err) {

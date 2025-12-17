@@ -391,13 +391,19 @@ function generateMystConfig(bookConfig: BookConfig): string {
   }
 
   // Build jupyter section (combine with existing jupyter detection)
+  // Merge hasJupyter flag into jupyterOptions to avoid duplicates
+  if (hasJupyter && !jupyterOptions.lite) {
+    jupyterOptions.lite = true;
+  }
+
   let jupyterSection = '';
-  if (hasJupyter || Object.keys(jupyterOptions).length > 0) {
+  if (Object.keys(jupyterOptions).length > 0) {
     jupyterSection = `  jupyter:\n`;
-    if (hasJupyter) {
-      jupyterSection += `    lite: true\n`;
-    }
+    const addedKeys = new Set<string>();
     for (const [key, value] of Object.entries(jupyterOptions)) {
+      if (addedKeys.has(key)) continue; // Skip duplicates
+      addedKeys.add(key);
+
       if (typeof value === 'object' && value !== null && (value as Record<string, unknown>).enabled) {
         jupyterSection += `    ${key}: true\n`;
       } else if (typeof value === 'boolean' && value) {

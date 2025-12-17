@@ -6,5 +6,13 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Increase function timeout for AI generation (max 26s on Pro, 10s on Free)
+[functions]
+  node_bundler = "esbuild"
+
+# External node modules that need to be bundled
+[functions."*"]
+  external_node_modules = ["@anthropic-ai/sdk"]
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"

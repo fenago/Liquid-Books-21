@@ -124,8 +124,11 @@ async function generateWithClaude(
   userPrompt: string,
   type: 'toc' | 'chapter' | 'content'
 ): Promise<string> {
-  // Claude Opus 4.5 supports up to 64K output tokens
-  const maxTokens = type === 'toc' ? 64000 : 16384;
+  // Use reasonable token limits to avoid timeouts
+  // TOC needs less, chapters need more but not too much for Netlify timeout
+  const maxTokens = type === 'toc' ? 4096 : 8192;
+
+  console.log(`Calling Claude API with model: ${model}, maxTokens: ${maxTokens}`);
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -143,11 +146,18 @@ async function generateWithClaude(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Claude API request failed');
+    const errorText = await response.text();
+    console.error('Claude API error:', response.status, errorText);
+    try {
+      const error = JSON.parse(errorText);
+      throw new Error(error.error?.message || `Claude API failed: ${response.status}`);
+    } catch {
+      throw new Error(`Claude API failed: ${response.status} - ${errorText.substring(0, 200)}`);
+    }
   }
 
   const data = await response.json();
+  console.log('Claude API response received, content length:', data.content?.[0]?.text?.length || 0);
   return data.content[0].text;
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
-import { BookConfig, Chapter } from '@/types';
+import { BookConfig, Chapter, BookLevelFeature } from '@/types';
+import { BOOK_LEVEL_FEATURES } from '@/data/bookLevelFeatures';
 
 interface CreateRepoRequest {
   token: string;
@@ -321,44 +322,96 @@ function generateMystConfig(bookConfig: BookConfig): string {
   const enabledFeatures = bookConfig.features.filter((f) => f.enabled);
   const hasJupyter = enabledFeatures.some((f) => f.id === 'jupyter-execution' || f.id === 'binder');
 
-  const config: Record<string, unknown> = {
-    version: 1,
-    project: {
-      title: bookConfig.title,
-      description: bookConfig.description,
-      authors: [{ name: bookConfig.author }],
-      github: bookConfig.github
-        ? `https://github.com/${bookConfig.github.username}/${bookConfig.github.repoName}`
-        : undefined,
-      toc: generateTocConfig(bookConfig.tableOfContents.chapters),
-    },
-    site: {
-      template: 'book-theme',
-      title: bookConfig.title,
-      options: {
-        favicon: '/favicon.ico',
-        logo: '/logo.png',
-      },
-    },
-  };
+  // Get book-level features (use defaults if not set)
+  const bookFeatures = bookConfig.bookFeatures || BOOK_LEVEL_FEATURES;
+  const enabledBookFeatures = bookFeatures.filter((f: BookLevelFeature) => f.enabled);
 
-  // Add jupyter configuration if enabled
-  if (hasJupyter) {
-    const jupyterFeature = enabledFeatures.find((f) => f.id === 'jupyter-execution');
-    const binderFeature = enabledFeatures.find((f) => f.id === 'binder');
+  // Build site options from book-level features
+  const siteOptions: Record<string, unknown> = {};
+  const exportOptions: Record<string, unknown> = {};
+  const jupyterOptions: Record<string, unknown> = {};
 
-    if (jupyterFeature) {
-      (config.project as Record<string, unknown>).jupyter = { lite: true };
-    } else if (binderFeature) {
-      (config.project as Record<string, unknown>).jupyter = { binder: true };
+  // Process enabled book features
+  for (const feature of enabledBookFeatures) {
+    if (!feature.configKey) continue;
+
+    const parts = feature.configKey.split('.');
+    const value = feature.configValue;
+
+    // Route to appropriate options object based on configKey prefix
+    if (parts[0] === 'site' && parts[1] === 'options' && parts[2]) {
+      siteOptions[parts[2]] = value;
+    } else if (parts[0] === 'export' && parts[1]) {
+      exportOptions[parts[1]] = value;
+    } else if (parts[0] === 'jupyter' && parts[1]) {
+      jupyterOptions[parts[1]] = value;
     }
   }
 
-  // BASE_URL is handled by the GitHub Actions workflow via environment variable
-  // See: https://mystmd.org/guide/deployment-github-pages
+  // Generate site options YAML
+  const generateOptionsYaml = (options: Record<string, unknown>, indent: number): string => {
+    const spaces = ' '.repeat(indent);
+    const lines: string[] = [];
+    for (const [key, value] of Object.entries(options)) {
+      if (typeof value === 'boolean') {
+        lines.push(`${spaces}${key}: ${value}`);
+      } else if (typeof value === 'object' && value !== null) {
+        lines.push(`${spaces}${key}:`);
+        for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
+          lines.push(`${spaces}  ${subKey}: ${subValue}`);
+        }
+      } else {
+        lines.push(`${spaces}${key}: ${value}`);
+      }
+    }
+    return lines.join('\n');
+  };
+
+  // Build options section
+  let optionsSection = '';
+  if (Object.keys(siteOptions).length > 0 || bookConfig.coverImage) {
+    optionsSection = `  options:\n`;
+    if (bookConfig.coverImage) {
+      optionsSection += `    logo: "${bookConfig.coverImage}"\n`;
+    }
+    if (Object.keys(siteOptions).length > 0) {
+      optionsSection += generateOptionsYaml(siteOptions, 4) + '\n';
+    }
+  }
+
+  // Build export section
+  let exportSection = '';
+  if (Object.keys(exportOptions).length > 0) {
+    exportSection = `\nexport:\n`;
+    for (const [key, value] of Object.entries(exportOptions)) {
+      if (typeof value === 'object' && value !== null && (value as Record<string, unknown>).enabled) {
+        exportSection += `  ${key}: true\n`;
+      }
+    }
+  }
+
+  // Build jupyter section (combine with existing jupyter detection)
+  let jupyterSection = '';
+  if (hasJupyter || Object.keys(jupyterOptions).length > 0) {
+    jupyterSection = `  jupyter:\n`;
+    if (hasJupyter) {
+      jupyterSection += `    lite: true\n`;
+    }
+    for (const [key, value] of Object.entries(jupyterOptions)) {
+      if (typeof value === 'object' && value !== null && (value as Record<string, unknown>).enabled) {
+        jupyterSection += `    ${key}: true\n`;
+      } else if (typeof value === 'boolean' && value) {
+        jupyterSection += `    ${key}: true\n`;
+      }
+    }
+  }
+
+  // Log enabled book features for debugging
+  console.log(`Book-level features enabled: ${enabledBookFeatures.map((f: BookLevelFeature) => f.id).join(', ')}`);
 
   return `# Liquid Books Configuration
 # Created by Dr. Lee
+# Book-level features: ${enabledBookFeatures.length} enabled
 
 version: 1
 
@@ -368,17 +421,13 @@ ${bookConfig.description ? `  description: "${bookConfig.description}"` : ''}
   authors:
     - name: "${bookConfig.author}"
 ${bookConfig.github ? `  github: https://github.com/${bookConfig.github.username}/${bookConfig.github.repoName}` : ''}
-${hasJupyter ? `  jupyter:
-    lite: true` : ''}
-  toc:
+${jupyterSection ? jupyterSection : ''}  toc:
 ${generateTocYaml(bookConfig.tableOfContents.chapters, 4)}
 
 site:
   template: book-theme
   title: "${bookConfig.title}"
-${bookConfig.coverImage ? `  options:
-    logo: "${bookConfig.coverImage}"` : ''}
-`;
+${optionsSection}${exportSection}`;
 }
 
 function generateTocConfig(chapters: Chapter[]): { file: string; children?: unknown[] }[] {

@@ -15,7 +15,10 @@ import {
   Settings,
   Workflow,
   RefreshCw,
+  Puzzle,
 } from 'lucide-react';
+import { BOOK_LEVEL_FEATURES } from '@/data/bookLevelFeatures';
+import { BookLevelFeature } from '@/types';
 
 type GenerationStatus = 'idle' | 'generating' | 'success' | 'error';
 
@@ -240,6 +243,18 @@ export function GenerateBookStep() {
 
   const enabledFeatures = bookConfig.features.filter((f) => f.enabled);
 
+  // Get book-level features (use defaults if not set)
+  const bookFeatures = bookConfig.bookFeatures || BOOK_LEVEL_FEATURES;
+  const enabledBookFeatures = bookFeatures.filter((f: BookLevelFeature) => f.enabled);
+
+  // Group book-level features by category
+  const groupedBookFeatures = enabledBookFeatures.reduce((acc: Record<string, BookLevelFeature[]>, feature: BookLevelFeature) => {
+    const category = feature.category || 'other';
+    if (!acc[category]) acc[category] = [];
+    acc[category].push(feature);
+    return acc;
+  }, {} as Record<string, BookLevelFeature[]>);
+
   return (
     <div className="space-y-8">
       <div>
@@ -284,10 +299,10 @@ export function GenerateBookStep() {
           </div>
         </div>
 
-        {/* Enabled Features */}
+        {/* Enabled Chapter Features (MyST) */}
         {enabledFeatures.length > 0 && (
           <div>
-            <span className="text-sm text-gray-500 dark:text-gray-400">Enabled Features:</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Chapter Features (MyST):</span>
             <div className="flex flex-wrap gap-2 mt-2">
               {enabledFeatures.map((feature) => (
                 <span
@@ -296,6 +311,41 @@ export function GenerateBookStep() {
                 >
                   {feature.name}
                 </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Enabled Book-Level Features */}
+        {enabledBookFeatures.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Puzzle className="h-4 w-4 text-purple-500" />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Book Configuration ({enabledBookFeatures.length} features enabled):
+              </span>
+            </div>
+            <div className="space-y-3">
+              {Object.entries(groupedBookFeatures).map(([category, features]) => (
+                <div key={category}>
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                    {category.replace('-', ' ')}
+                  </span>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {(features as BookLevelFeature[]).map((feature) => (
+                      <span
+                        key={feature.id}
+                        className="px-2 py-1 text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded"
+                        title={feature.description}
+                      >
+                        {feature.name}
+                        {feature.configKey && (
+                          <span className="ml-1 opacity-60">✓</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

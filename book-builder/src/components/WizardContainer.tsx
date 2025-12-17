@@ -49,11 +49,11 @@ export function WizardContainer({ children }: WizardContainerProps) {
             <div className="flex items-center gap-3">
               <BookOpen className="h-8 w-8 text-blue-600 dark:text-blue-400" />
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Book Builder
+                Liquid Books
               </h1>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              MyST Markdown + Jupyter Book
+              AI-Powered Book Builder
             </p>
           </div>
         </div>

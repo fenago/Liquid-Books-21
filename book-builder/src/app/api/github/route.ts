@@ -321,6 +321,12 @@ function generateBookFiles(bookConfig: BookConfig): { path: string; content: str
     content: generateFooter(),
   });
 
+  // Generate custom header with book branding
+  files.push({
+    path: 'header.md',
+    content: generateHeader(bookConfig.title),
+  });
+
   return files;
 }
 
@@ -463,6 +469,7 @@ site:
   template: book-theme
   title: "${bookConfig.title}"
 ${optionsSection}  parts:
+    header: header.md
     footer: footer.md
 ${exportSection}`;
 }
@@ -777,6 +784,18 @@ function generateFooter(): string {
 :::
 
 **Created with [Liquid Books](https://liquid-books.netlify.app) by Dr. Lee**
+
+::::
+`;
+}
+
+function generateHeader(bookTitle: string): string {
+  return `::::{div}
+:class: header-branding
+
+# ${bookTitle}
+
+*A Liquid Books Publication*
 
 ::::
 `;

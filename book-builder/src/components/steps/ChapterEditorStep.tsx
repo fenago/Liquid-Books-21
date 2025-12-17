@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useBookStore } from '@/store/useBookStore';
 import { Chapter, AIProvider, BookLevelFeature, BookLevelFeatureCategory } from '@/types';
 import { MYST_FEATURES_DATA, getFeaturesByCategory, MystFeatureCategory } from '@/data/mystFeatures';
@@ -213,6 +213,7 @@ export function ChapterEditorStep() {
     removeChapter,
     updateChapterSystemPrompt,
     toggleChapterFeature,
+    updateChapterFeatures,
     updateChapterInputMode,
     updateChapterWordCount,
     updateChapterModel,
@@ -267,6 +268,70 @@ export function ChapterEditorStep() {
     foundFeatures: string[];
     missingFeatures: string[];
   } | null>(null);
+
+  // Initialize all chapters' features from book-level selections on mount
+  useEffect(() => {
+    // Map book-level features to MYST_FEATURES_DATA categories/IDs
+    const featureMapping: Record<string, string[]> = {
+      'admonitions': ['note', 'tip', 'hint', 'important', 'warning', 'caution', 'attention', 'danger', 'error', 'seealso', 'admonition-dropdown', 'admonition-custom'],
+      'figures': ['figure', 'image'],
+      'math': ['inline-math', 'equation-block', 'dollar-math', 'align-env', 'matrix'],
+      'citations': ['citation', 'footnote'],
+      'tables': ['table', 'list-table', 'csv-table', 'table-caption'],
+      'code-blocks': ['code-block', 'code-caption', 'code-linenos', 'code-emphasize', 'literalinclude'],
+      'tabs': ['tab-set'],
+      'dropdowns': ['dropdown', 'admonition-dropdown'],
+      'cards': ['card', 'card-link', 'grid'],
+      'exercises': ['exercise', 'solution', 'exercise-dropdown'],
+      'quizzes': ['quiz', 'mcq', 'fill-blank'],
+      'jupyter-execution': ['jupyter-cell', 'output-cell', 'thebe-button'],
+      'pyodide-cells': ['pyodide'],
+      'binder': ['binder-link'],
+      'colab-cells': ['colab'],
+      'interactive-outputs': ['plotly', 'bokeh', 'altair'],
+    };
+
+    // Get enabled feature IDs from bookConfig.features
+    const enabledBookFeatures = bookConfig.features
+      .filter(f => f.enabled)
+      .map(f => f.id);
+
+    // Map to MYST_FEATURES_DATA feature IDs
+    const defaultFeatures: string[] = [];
+    for (const bookFeatureId of enabledBookFeatures) {
+      const mappedFeatures = featureMapping[bookFeatureId];
+      if (mappedFeatures) {
+        defaultFeatures.push(...mappedFeatures);
+      }
+    }
+
+    // Also add common features
+    const commonFeatures = ['code-block', 'inline-math', 'mermaid-flowchart'];
+    for (const feature of commonFeatures) {
+      if (!defaultFeatures.includes(feature)) {
+        defaultFeatures.push(feature);
+      }
+    }
+
+    const uniqueFeatures = [...new Set(defaultFeatures)];
+
+    // Helper to initialize features for a chapter and its children
+    const initializeChapterFeatures = (chapters: Chapter[]) => {
+      for (const chapter of chapters) {
+        if (!chapter.selectedFeatures || chapter.selectedFeatures.length === 0) {
+          updateChapterFeatures(chapter.id, uniqueFeatures);
+        }
+        if (chapter.children && chapter.children.length > 0) {
+          initializeChapterFeatures(chapter.children);
+        }
+      }
+    };
+
+    if (uniqueFeatures.length > 0) {
+      initializeChapterFeatures(bookConfig.tableOfContents.chapters);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount
 
   const toggleExpanded = useCallback((chapterId: string) => {
     setExpandedChapters(prev => {
@@ -503,9 +568,63 @@ export function ChapterEditorStep() {
   }, []);
 
   const handleOpenFeatures = useCallback((chapter: Chapter) => {
+    // If chapter doesn't have features set, initialize from book-level enabled features
+    if (!chapter.selectedFeatures || chapter.selectedFeatures.length === 0) {
+      // Map book-level features to MYST_FEATURES_DATA categories/IDs
+      const featureMapping: Record<string, string[]> = {
+        'admonitions': ['note', 'tip', 'hint', 'important', 'warning', 'caution', 'attention', 'danger', 'error', 'seealso', 'admonition-dropdown', 'admonition-custom'],
+        'figures': ['figure', 'image'],
+        'math': ['inline-math', 'equation-block', 'dollar-math', 'align-env', 'matrix'],
+        'citations': ['citation', 'footnote'],
+        'tables': ['table', 'list-table', 'csv-table', 'table-caption'],
+        'code-blocks': ['code-block', 'code-caption', 'code-linenos', 'code-emphasize', 'literalinclude'],
+        'tabs': ['tab-set'],
+        'dropdowns': ['dropdown', 'admonition-dropdown'],
+        'cards': ['card', 'card-link', 'grid'],
+        'exercises': ['exercise', 'solution', 'exercise-dropdown'],
+        'quizzes': ['quiz', 'mcq', 'fill-blank'],
+        'jupyter-execution': ['jupyter-cell', 'output-cell', 'thebe-button'],
+        'pyodide-cells': ['pyodide'],
+        'binder': ['binder-link'],
+        'colab-cells': ['colab'],
+        'interactive-outputs': ['plotly', 'bokeh', 'altair'],
+      };
+
+      // Get enabled feature IDs from bookConfig.features
+      const enabledBookFeatures = bookConfig.features
+        .filter(f => f.enabled)
+        .map(f => f.id);
+
+      // Map to MYST_FEATURES_DATA feature IDs
+      const initialFeatures: string[] = [];
+      for (const bookFeatureId of enabledBookFeatures) {
+        const mappedFeatures = featureMapping[bookFeatureId];
+        if (mappedFeatures) {
+          initialFeatures.push(...mappedFeatures);
+        }
+      }
+
+      // Also add some common features that are always useful
+      const commonFeatures = ['code-block', 'inline-math', 'mermaid-flowchart'];
+      for (const feature of commonFeatures) {
+        if (!initialFeatures.includes(feature)) {
+          initialFeatures.push(feature);
+        }
+      }
+
+      // Remove duplicates
+      const uniqueFeatures = [...new Set(initialFeatures)];
+
+      // Update the store with inherited features
+      if (uniqueFeatures.length > 0) {
+        updateChapterFeatures(chapter.id, uniqueFeatures);
+        // Update the chapter object for the modal
+        chapter = { ...chapter, selectedFeatures: uniqueFeatures };
+      }
+    }
     setModalChapter(chapter);
     setModalType('features');
-  }, []);
+  }, [bookConfig.features, updateChapterFeatures]);
 
   const handleOpenSystemPrompt = useCallback((chapter: Chapter) => {
     setModalChapter(chapter);

@@ -105,7 +105,7 @@ Rules:
       }
 
       const wordCountRequirement = context?.targetWordCount
-        ? `\n\nCRITICAL REQUIREMENT: Write approximately ${context.targetWordCount} words. Do NOT stop early. Continue writing until you reach the target word count. If you feel you've covered the main topics, add more detail, examples, exercises, or related concepts to meet the word count.`
+        ? `\n\nCRITICAL WORD COUNT REQUIREMENT: You MUST write approximately ${context.targetWordCount} words. This is NON-NEGOTIABLE. Do NOT stop until you reach this target. Count your words as you write. If you finish the main topics before reaching the word count, add more examples, exercises, detailed explanations, and practical applications.`
         : '';
 
       return `You are an expert technical writer creating content for the book "${context?.bookTitle || 'Technical Book'}".
@@ -113,6 +113,13 @@ Rules:
 Book Description: ${context?.bookDescription || 'A technical book'}
 
 You are writing the chapter: "${context?.chapterTitle || 'Chapter'}"
+
+CRITICAL INSTRUCTION: The chapter title defines ALL topics you MUST cover. If the title contains multiple topics (separated by "and", commas, or listed), you MUST write comprehensive sections for EACH topic. DO NOT stop after covering only the first topic.
+
+For example:
+- "Univariate, Bivariate, and Multivariate Analysis" = You MUST cover ALL THREE types
+- "Data Cleaning and Preprocessing" = You MUST cover BOTH cleaning AND preprocessing
+- "Introduction to Python and Pandas" = You MUST cover BOTH Python AND Pandas
 
 Guidelines:
 - Write in MyST Markdown format
@@ -129,7 +136,7 @@ Guidelines:
 - Include exercises or practice sections where appropriate
 ${wordCountRequirement}
 
-Write comprehensive, well-structured content that teaches the reader effectively. DO NOT stop until you have written substantial, complete content.`;
+IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT stop early. Do NOT truncate. Continue writing until you have thoroughly covered every topic mentioned in the chapter title with equal depth and detail.`;
     }
 
     case 'content':
@@ -174,6 +181,7 @@ function streamWithClaude(
             'Content-Type': 'application/json',
             'x-api-key': apiKey,
             'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'output-128k-2025-02-19',
           },
           body: JSON.stringify({
             model,

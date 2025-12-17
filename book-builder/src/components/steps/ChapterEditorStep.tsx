@@ -901,6 +901,7 @@ export function ChapterEditorStep() {
         let accumulatedContent = '';
         let chunkCount = 0;
         let buffer = ''; // Buffer for incomplete lines
+        let receivedComplete = false; // Track if we got the final "done" message
 
         while (true) {
           const { done, value } = await reader.read();
@@ -936,6 +937,7 @@ export function ChapterEditorStep() {
 
                 if (data.done && data.content) {
                   console.log('Stream complete, content length:', data.content.length);
+                  receivedComplete = true;
                   accumulatedContent = data.content;
                   setEditedContent(accumulatedContent);
 
@@ -955,6 +957,26 @@ export function ChapterEditorStep() {
                 // Continue processing other lines
               }
             }
+          }
+        }
+
+        // Check for truncation - if we have content but never got a proper "done" message
+        if (accumulatedContent && !receivedComplete) {
+          console.warn('Stream ended without proper completion. Content may be truncated.');
+          // Check if content appears truncated (ends mid-sentence)
+          const trimmed = accumulatedContent.trim();
+          const lastChar = trimmed.slice(-1);
+          const endsProperlyChars = ['.', '!', '?', '`', '"', "'", ')', ']', '}', ':'];
+          const appearsComplete = endsProperlyChars.includes(lastChar);
+
+          if (!appearsComplete) {
+            console.error('Content appears truncated - ends with:', trimmed.slice(-50));
+            // Still keep the content but warn the user
+            setGenerationMetadata({
+              stopReason: 'stream_truncated',
+              wordCount: accumulatedContent.split(/\s+/).length
+            });
+            alert('⚠️ Content generation was cut off (likely server timeout). The partial content has been saved. Try regenerating or breaking this into smaller sections.');
           }
         }
 

@@ -157,10 +157,9 @@ function streamWithClaude(
   userPrompt: string,
   type: 'toc' | 'chapter' | 'content'
 ): Response {
-  // Claude 3.5 Sonnet and Claude 3 models support up to 8192 output tokens
-  // Claude 3.5 Sonnet (Oct 2024+) supports higher limits
-  // Use maximum available for comprehensive chapter content
-  const maxTokens = type === 'toc' ? 4096 : 65536;
+  // Claude models support large context windows (200K)
+  // Use generous output limits for comprehensive chapter content
+  const maxTokens = type === 'toc' ? 4096 : 64000;
 
   console.log(`Streaming Claude API with model: ${model}, maxTokens: ${maxTokens}`);
 
@@ -200,8 +199,11 @@ function streamWithClaude(
           return;
         }
 
+        console.log('Claude API response OK, starting to read stream...');
+
         const reader = response.body?.getReader();
         if (!reader) {
+          console.error('No response body from Claude API');
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: 'No response body' })}\n\n`));
           controller.close();
           return;
@@ -212,11 +214,15 @@ function streamWithClaude(
         let fullContent = '';
         let stopReason = '';
         let inputTokens = 0;
+        let chunkCount = 0;
         let outputTokens = 0;
 
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            console.log(`Stream read complete. Total chunks sent: ${chunkCount}`);
+            break;
+          }
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split('\n');
@@ -230,9 +236,15 @@ function streamWithClaude(
               try {
                 const parsed = JSON.parse(data);
 
+                // Log first few events for debugging
+                if (chunkCount < 3) {
+                  console.log(`Event ${chunkCount}: type=${parsed.type}`);
+                }
+
                 // Handle content_block_delta events
                 if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
                   fullContent += parsed.delta.text;
+                  chunkCount++;
                   // Send chunk to client
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`));
                 }

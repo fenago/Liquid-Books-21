@@ -3,7 +3,19 @@ import { AIProvider, AIModel } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const { provider, apiKey } = await request.json();
+    const { provider, apiKey: providedApiKey } = await request.json();
+
+    // Use provided API key or fall back to environment variable
+    let apiKey = providedApiKey;
+    if (!apiKey) {
+      if (provider === 'claude') {
+        apiKey = process.env.ANTHROPIC_API_KEY || '';
+      } else if (provider === 'openai') {
+        apiKey = process.env.OPENAI_API_KEY || '';
+      } else if (provider === 'gemini') {
+        apiKey = process.env.GEMINI_API_KEY || '';
+      }
+    }
 
     if (!provider || !apiKey) {
       return NextResponse.json(

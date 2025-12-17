@@ -18,11 +18,24 @@ interface GenerateRequest {
 export async function POST(request: NextRequest) {
   try {
     const body: GenerateRequest = await request.json();
-    const { provider, apiKey, model, prompt, type, context } = body;
+    const { provider, apiKey: providedApiKey, model, prompt, type, context } = body;
+
+    // Use provided API key or fall back to environment variable
+    let apiKey = providedApiKey;
+    if (!apiKey) {
+      if (provider === 'claude') {
+        apiKey = process.env.ANTHROPIC_API_KEY || '';
+      } else if (provider === 'openai') {
+        apiKey = process.env.OPENAI_API_KEY || '';
+      } else if (provider === 'gemini') {
+        apiKey = process.env.GEMINI_API_KEY || '';
+      }
+    }
 
     if (!provider || !apiKey || !model || !prompt) {
+      console.error('Missing fields:', { provider: !!provider, apiKey: !!apiKey, model: !!model, prompt: !!prompt });
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: `Missing required fields. API key ${apiKey ? 'provided' : 'missing for ' + provider}` },
         { status: 400 }
       );
     }

@@ -27,6 +27,7 @@ export async function POST(request: NextRequest) {
 
     // Get authenticated user
     const { data: user } = await octokit.users.getAuthenticated();
+    console.log('Authenticated as:', user.login, '- Type:', user.type);
 
     // Generate book files
     const files = generateBookFiles(bookConfig);
@@ -97,12 +98,31 @@ export async function POST(request: NextRequest) {
 
     } else {
       // CREATE NEW REPO
-      const { data: repo } = await octokit.repos.createForAuthenticatedUser({
-        name: repoName,
-        description: bookConfig.description,
-        auto_init: true,
-        private: false,
-      });
+      // Check if user is an organization or regular user
+      const isOrganization = user.type === 'Organization';
+      console.log(`Creating repo for ${isOrganization ? 'organization' : 'user'}: ${user.login}`);
+
+      let repo;
+      if (isOrganization) {
+        // Create repo in organization
+        const response = await octokit.repos.createInOrg({
+          org: user.login,
+          name: repoName,
+          description: bookConfig.description,
+          auto_init: true,
+          visibility: 'public',
+        });
+        repo = response.data;
+      } else {
+        // Create repo for authenticated user
+        const response = await octokit.repos.createForAuthenticatedUser({
+          name: repoName,
+          description: bookConfig.description,
+          auto_init: true,
+          private: false,
+        });
+        repo = response.data;
+      }
       repoUrl = repo.html_url;
 
       // Wait for GitHub to initialize the repository
@@ -219,8 +239,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (err.status === 422) {
+      // Extract actual GitHub error message for better debugging
+      const githubMessage = (error as { message?: string }).message || 'Unknown validation error';
+      console.error('GitHub 422 error details:', githubMessage);
+
+      // Check for common issues
+      let userMessage = 'Invalid repository name or configuration.';
+      if (githubMessage.includes('name already exists')) {
+        userMessage = 'A repository with this name already exists. Please choose a different name.';
+      } else if (githubMessage.includes('organization')) {
+        userMessage = 'Cannot create repository in organization. Please use a personal access token from a personal account.';
+      } else {
+        userMessage = `GitHub error: ${githubMessage}`;
+      }
+
       return NextResponse.json(
-        { error: 'Invalid repository name or configuration. Please check your inputs.' },
+        { error: userMessage },
         { status: 422 }
       );
     }

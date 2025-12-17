@@ -249,6 +249,7 @@ export function ChapterEditorStep() {
   const [modalType, setModalType] = useState<ModalType>('none');
   const [modalChapter, setModalChapter] = useState<Chapter | null>(null);
   const [tempSystemPrompt, setTempSystemPrompt] = useState('');
+  const [showDefaultPrompt, setShowDefaultPrompt] = useState(false);
   const [tempSelectedModel, setTempSelectedModel] = useState<string | null>(null);
   const [tempSelectedProvider, setTempSelectedProvider] = useState<AIProvider | undefined>(undefined);
   const [tempProviderApiKey, setTempProviderApiKey] = useState('');
@@ -344,6 +345,43 @@ export function ChapterEditorStep() {
       return newExpanded;
     });
   }, []);
+
+  // Generate the default system prompt for a chapter
+  const getDefaultSystemPrompt = useCallback((chapter: Chapter): string => {
+    const wordCountRequirement = chapter.targetWordCount
+      ? `\n\nCRITICAL WORD COUNT REQUIREMENT: You MUST write approximately ${chapter.targetWordCount} words. This is NON-NEGOTIABLE. Do NOT stop until you reach this target. Count your words as you write. If you finish the main topics before reaching the word count, add more examples, exercises, detailed explanations, and practical applications.`
+      : '';
+
+    return `You are an expert technical writer creating content for the book "${bookConfig.title}".
+
+Book Description: ${bookConfig.description}
+
+You are writing the chapter: "${chapter.title}"
+
+CRITICAL INSTRUCTION: The chapter title defines ALL topics you MUST cover. If the title contains multiple topics (separated by "and", commas, or listed), you MUST write comprehensive sections for EACH topic. DO NOT stop after covering only the first topic.
+
+For example:
+- "Univariate, Bivariate, and Multivariate Analysis" = You MUST cover ALL THREE types
+- "Data Cleaning and Preprocessing" = You MUST cover BOTH cleaning AND preprocessing
+- "Introduction to Python and Pandas" = You MUST cover BOTH Python AND Pandas
+
+Guidelines:
+- Write in MyST Markdown format
+- Use appropriate headings (## for main sections, ### for subsections)
+- Include code examples with proper syntax highlighting using triple backticks and language identifiers
+- Use admonitions for important notes:
+  \`\`\`{note}
+  Important information here
+  \`\`\`
+- Include practical examples and explanations
+- Use cross-references where appropriate
+- Add figures and diagrams descriptions where helpful
+- Make content accessible and educational
+- Include exercises or practice sections where appropriate
+${wordCountRequirement}
+
+IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT stop early. Do NOT truncate. Continue writing until you have thoroughly covered every topic mentioned in the chapter title with equal depth and detail.`;
+  }, [bookConfig.title, bookConfig.description]);
 
   // Feature audit function - checks which selected features are present in the content
   const auditFeatures = useCallback((content: string, selectedFeatureIds: string[]) => {
@@ -1609,19 +1647,70 @@ ${editedContent}`,
             </div>
 
             {/* System Prompt */}
-            <div>
-              <label className="block text-sm font-medium text-gray-900 dark:text-white mb-2">
-                Custom System Prompt
-              </label>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                Customize the AI system prompt for this specific chapter. This will override the default prompt when generating content.
-              </p>
-              <textarea
-                value={tempSystemPrompt}
-                onChange={(e) => setTempSystemPrompt(e.target.value)}
-                placeholder="Enter a custom system prompt for AI generation..."
-                className="w-full h-48 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-medium text-gray-900 dark:text-white">
+                  System Prompt
+                </label>
+                <button
+                  onClick={() => setShowDefaultPrompt(!showDefaultPrompt)}
+                  className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                >
+                  {showDefaultPrompt ? 'Hide' : 'Show'} Default Prompt
+                  <svg className={`w-4 h-4 transition-transform ${showDefaultPrompt ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Default Prompt Display */}
+              {showDefaultPrompt && modalChapter && (
+                <div className="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                      Default System Prompt (Read-Only)
+                    </span>
+                    <button
+                      onClick={() => {
+                        setTempSystemPrompt(getDefaultSystemPrompt(modalChapter));
+                        setShowDefaultPrompt(false);
+                      }}
+                      className="text-xs px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded hover:bg-blue-200 dark:hover:bg-blue-900/50"
+                    >
+                      Copy to Custom
+                    </button>
+                  </div>
+                  <pre className="text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap overflow-auto max-h-64 font-mono bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-600">
+                    {getDefaultSystemPrompt(modalChapter)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Custom Prompt Input */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Custom System Prompt {tempSystemPrompt ? '(Active)' : '(Optional)'}
+                  </label>
+                  {tempSystemPrompt && (
+                    <button
+                      onClick={() => setTempSystemPrompt('')}
+                      className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                    >
+                      Clear &amp; Use Default
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  Leave empty to use the default prompt, or enter a custom prompt to override it.
+                </p>
+                <textarea
+                  value={tempSystemPrompt}
+                  onChange={(e) => setTempSystemPrompt(e.target.value)}
+                  placeholder="Enter a custom system prompt to override the default..."
+                  className="w-full h-48 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+                />
+              </div>
             </div>
           </div>
 

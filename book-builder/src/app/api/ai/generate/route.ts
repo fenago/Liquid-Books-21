@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AIProvider } from '@/types';
 
+// Use Edge runtime for better streaming support and longer timeouts on Netlify
+// Edge functions have up to 50 second timeout vs 10s for serverless
+export const runtime = 'edge';
+
+// Maximum duration for streaming (in seconds) - Vercel/Netlify Pro feature
+export const maxDuration = 60;
+
 interface GenerateRequest {
   provider: AIProvider;
   apiKey: string;
@@ -80,7 +87,11 @@ function getSystemPrompt(
   context?: GenerateRequest['context']
 ): string {
   switch (type) {
-    case 'toc':
+    case 'toc': {
+      // Use custom system prompt if provided for TOC
+      if (context?.systemPromptOverride) {
+        return context.systemPromptOverride;
+      }
       return `You are an expert technical book author. Generate a table of contents as a JSON array.
 
 CRITICAL: Output COMPACT JSON with NO descriptions to avoid truncation. Use this minimal structure:
@@ -94,6 +105,7 @@ Rules:
 - Aim for 8-15 main chapters
 - Output ONLY valid JSON array, no markdown, no explanation
 - Ensure JSON is COMPLETE - do not truncate`;
+    }
 
     case 'chapter': {
       // Use custom system prompt if provided
@@ -139,7 +151,11 @@ ${wordCountRequirement}
 IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT stop early. Do NOT truncate. Continue writing until you have thoroughly covered every topic mentioned in the chapter title with equal depth and detail.`;
     }
 
-    case 'content':
+    case 'content': {
+      // Use custom system prompt if provided for content
+      if (context?.systemPromptOverride) {
+        return context.systemPromptOverride;
+      }
       return `You are a technical writing assistant. Help improve and expand the provided content while maintaining MyST Markdown format.
 
 Context:
@@ -150,6 +166,7 @@ Previous content for reference:
 ${context?.previousContent || 'No previous content'}
 
 Maintain consistency with the existing style and format.`;
+    }
 
     default:
       return 'You are a helpful assistant.';

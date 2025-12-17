@@ -16,6 +16,11 @@ import {
   Loader2,
   AlertCircle,
   ClipboardPaste,
+  Settings,
+  Eye,
+  EyeOff,
+  Copy,
+  X,
 } from 'lucide-react';
 
 type Mode = 'choose' | 'generate' | 'manual' | 'import';
@@ -37,6 +42,39 @@ export function TOCGenerationStep() {
   const [expandedChapters, setExpandedChapters] = useState<Set<string>>(new Set());
   const [importText, setImportText] = useState('');
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  const [customSystemPrompt, setCustomSystemPrompt] = useState('');
+  const [useCustomPrompt, setUseCustomPrompt] = useState(false);
+
+  // Default system prompt for TOC generation (matches route.ts)
+  const defaultTocSystemPrompt = `You are an expert technical book author. Generate a table of contents as a JSON array.
+
+CRITICAL: Output COMPACT JSON with NO descriptions to avoid truncation. Use this minimal structure:
+[{"id":"ch-1","title":"Chapter Title","slug":"chapter-slug","children":[{"id":"ch-1-1","title":"Sub Title","slug":"sub-slug"}]}]
+
+Rules:
+- NO description field (saves tokens)
+- Short IDs: ch-1, ch-1-1, ch-2, etc.
+- Slugs: lowercase with hyphens
+- Keep hierarchy flat when possible (max 2 levels deep)
+- Aim for 8-15 main chapters
+- Output ONLY valid JSON array, no markdown, no explanation
+- Ensure JSON is COMPLETE - do not truncate`;
+
+  // Default system prompt for import/parsing
+  const defaultImportSystemPrompt = `Parse this outline into COMPACT JSON. CRITICAL: NO descriptions, use short IDs.
+
+Output format (COMPACT - no descriptions, no extra whitespace):
+[{"id":"ch-1","title":"Title","slug":"slug","children":[{"id":"ch-1-1","title":"Sub","slug":"sub"}]}]
+
+Rules:
+- Keep EXACT titles from input
+- Short IDs: ch-1, ch-1-2, ch-2, etc.
+- Slugs: lowercase-with-hyphens
+- NO description field
+- NO extra whitespace or newlines in JSON
+- Preserve original order
+- Output ONLY the JSON array`;
 
   const handleGenerateTOC = async () => {
     if (!aiConfig.provider || !aiConfig.apiKey || !aiConfig.selectedModel) {
@@ -78,6 +116,9 @@ Author: ${bookConfig.author}
 Description: ${bookConfig.description}
 
 Generate a logical, well-structured table of contents that covers all the topics mentioned in the description. Include practical examples, exercises, and hands-on sections where appropriate.`,
+          context: useCustomPrompt && customSystemPrompt ? {
+            systemPromptOverride: customSystemPrompt
+          } : undefined,
         }),
       });
 
@@ -577,6 +618,91 @@ Rules:
               Build your table of contents from scratch, one chapter at a time.
             </p>
           </button>
+        </div>
+      )}
+
+      {/* System Prompt Settings - visible in choose mode */}
+      {mode === 'choose' && (
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-gray-500" />
+              <h3 className="font-medium text-gray-900 dark:text-white">System Prompt Settings</h3>
+            </div>
+            <button
+              onClick={() => setShowSystemPrompt(!showSystemPrompt)}
+              className="flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              {showSystemPrompt ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showSystemPrompt ? 'Hide' : 'View'} Default Prompt
+            </button>
+          </div>
+
+          {showSystemPrompt && (
+            <div className="mb-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  DEFAULT SYSTEM PROMPT (READ-ONLY)
+                </span>
+                <button
+                  onClick={() => {
+                    setCustomSystemPrompt(defaultTocSystemPrompt);
+                    setUseCustomPrompt(true);
+                    setShowSystemPrompt(false);
+                  }}
+                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400"
+                >
+                  <Copy className="h-3 w-3" />
+                  Copy to Custom
+                </button>
+              </div>
+              <pre className="text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap font-mono bg-white dark:bg-gray-900 p-2 rounded border border-gray-200 dark:border-gray-700 max-h-48 overflow-y-auto">
+                {defaultTocSystemPrompt}
+              </pre>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              type="checkbox"
+              id="useCustomPrompt"
+              checked={useCustomPrompt}
+              onChange={(e) => setUseCustomPrompt(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="useCustomPrompt" className="text-sm text-gray-700 dark:text-gray-300">
+              Use custom system prompt
+            </label>
+          </div>
+
+          {useCustomPrompt && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Custom System Prompt
+                </label>
+                {customSystemPrompt && (
+                  <button
+                    onClick={() => setCustomSystemPrompt('')}
+                    className="flex items-center gap-1 text-xs text-red-600 hover:text-red-700"
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </button>
+                )}
+              </div>
+              <textarea
+                value={customSystemPrompt}
+                onChange={(e) => setCustomSystemPrompt(e.target.value)}
+                placeholder="Enter your custom system prompt for TOC generation..."
+                rows={6}
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                This prompt will be sent to the AI instead of the default. Make sure to include instructions for JSON output format.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

@@ -3,7 +3,10 @@ import { Octokit } from '@octokit/rest';
 
 export async function POST(request: NextRequest) {
   try {
-    const { token, username, repoName } = await request.json();
+    const { token: providedToken, username, repoName } = await request.json();
+
+    // Use provided token or fall back to environment variable
+    const token = providedToken || process.env.GITHUB_PAT;
 
     if (!token || !username || !repoName) {
       return NextResponse.json(

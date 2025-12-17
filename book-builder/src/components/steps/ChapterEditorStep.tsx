@@ -2,8 +2,9 @@
 
 import { useState, useCallback } from 'react';
 import { useBookStore } from '@/store/useBookStore';
-import { Chapter, AIProvider } from '@/types';
+import { Chapter, AIProvider, BookLevelFeature, BookLevelFeatureCategory } from '@/types';
 import { MYST_FEATURES_DATA, getFeaturesByCategory, MystFeatureCategory } from '@/data/mystFeatures';
+import { BOOK_LEVEL_FEATURES } from '@/data/bookLevelFeatures';
 import { MystPreview } from '@/components/MystPreview';
 import {
   ArrowLeft,
@@ -39,7 +40,7 @@ import {
 } from 'lucide-react';
 
 type EditorTab = 'ai-generate' | 'manual-write';
-type ModalType = 'none' | 'features' | 'system-prompt' | 'add-chapter' | 'analytics' | 'cover-image';
+type ModalType = 'none' | 'features' | 'book-features' | 'system-prompt' | 'add-chapter' | 'analytics' | 'cover-image';
 
 interface ChapterRowProps {
   chapter: Chapter;
@@ -219,6 +220,7 @@ export function ChapterEditorStep() {
     setProviderConfig,
     getProviderConfig,
     setBookCoverImage,
+    toggleBookFeature,
   } = useBookStore();
 
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
@@ -1183,6 +1185,123 @@ ${editedContent}`,
     );
   };
 
+  const renderBookFeaturesModal = () => {
+    if (modalType !== 'book-features') return null;
+
+    const bookFeatures = bookConfig.bookFeatures || BOOK_LEVEL_FEATURES;
+    const categories: BookLevelFeatureCategory[] = [
+      'front-matter', 'back-matter', 'export', 'navigation',
+      'interactivity', 'analytics', 'search', 'accessibility', 'versioning'
+    ];
+    const enabledCount = bookFeatures.filter(f => f.enabled).length;
+
+    const categoryLabels: Record<BookLevelFeatureCategory, string> = {
+      'front-matter': 'Front Matter',
+      'back-matter': 'Back Matter',
+      'export': 'Export Options',
+      'navigation': 'Navigation',
+      'interactivity': 'Interactive Features',
+      'analytics': 'Analytics',
+      'search': 'Search',
+      'accessibility': 'Accessibility',
+      'versioning': 'Versioning'
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-5xl w-full max-h-[85vh] flex flex-col">
+          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                <BookOpen className="h-5 w-5 text-blue-600" />
+                Book-Level Features
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                These features apply to the entire book and affect the generated myst.yml configuration
+              </p>
+            </div>
+            <button
+              onClick={() => setModalType('none')}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-auto p-4">
+            {/* Summary Badge */}
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                  {enabledCount} of {bookFeatures.length} features enabled
+                </span>
+                {enabledCount > 0 && (
+                  <span className="text-xs text-blue-600 dark:text-blue-400 max-w-xl truncate">
+                    Enabled: {bookFeatures.filter(f => f.enabled).map(f => f.name).join(', ')}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {categories.map(category => {
+                const features = bookFeatures.filter(f => f.category === category);
+                if (features.length === 0) return null;
+
+                return (
+                  <div key={category} className="space-y-2">
+                    <h4 className="font-medium text-gray-900 dark:text-white border-b border-gray-200 dark:border-gray-700 pb-2">
+                      {categoryLabels[category]}
+                    </h4>
+                    <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                      {features.map(feature => {
+                        const isSelected = feature.enabled;
+                        return (
+                          <button
+                            key={feature.id}
+                            onClick={() => toggleBookFeature(feature.id)}
+                            className={`
+                              w-full text-left p-2.5 rounded-lg text-sm transition-colors
+                              ${isSelected
+                                ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700'
+                                : 'bg-gray-50 dark:bg-gray-700/50 hover:bg-gray-100 dark:hover:bg-gray-700'
+                              }
+                              border
+                            `}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-xs">{feature.name}</span>
+                              {isSelected && <Check className="h-3.5 w-3.5 text-blue-600" />}
+                            </div>
+                            <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
+                              {feature.description}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Changes will be applied when you regenerate the book
+            </p>
+            <button
+              onClick={() => setModalType('none')}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSystemPromptModal = () => {
     if (modalType !== 'system-prompt' || !modalChapter) return null;
 
@@ -1692,6 +1811,18 @@ ${editedContent}`,
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setModalType('book-features')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-900/50 rounded-lg font-medium transition-colors"
+          >
+            <BookOpen className="h-4 w-4" />
+            Book Features
+            {(bookConfig.bookFeatures || BOOK_LEVEL_FEATURES).filter(f => f.enabled).length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded-full">
+                {(bookConfig.bookFeatures || BOOK_LEVEL_FEATURES).filter(f => f.enabled).length}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setModalType('analytics')}
             className="flex items-center gap-2 px-4 py-2 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-900/50 rounded-lg font-medium transition-colors"
@@ -2353,6 +2484,7 @@ ${editedContent}`,
 
       {/* Modals */}
       {renderFeaturesModal()}
+      {renderBookFeaturesModal()}
       {renderSystemPromptModal()}
       {renderAddChapterModal()}
       {renderAnalyticsModal()}

@@ -157,7 +157,10 @@ function streamWithClaude(
   userPrompt: string,
   type: 'toc' | 'chapter' | 'content'
 ): Response {
-  const maxTokens = type === 'toc' ? 4096 : 16384;
+  // Claude 3.5 Sonnet and Claude 3 models support up to 8192 output tokens
+  // Claude 3.5 Sonnet (Oct 2024+) supports higher limits
+  // Use maximum available for comprehensive chapter content
+  const maxTokens = type === 'toc' ? 4096 : 65536;
 
   console.log(`Streaming Claude API with model: ${model}, maxTokens: ${maxTokens}`);
 

@@ -15,6 +15,7 @@ import {
   Loader2,
   Save,
   Check,
+  CheckCircle,
   RefreshCw,
   Eye,
   Edit3,
@@ -253,6 +254,17 @@ export function ChapterEditorStep() {
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [addChapterParentId, setAddChapterParentId] = useState<string | null>(null);
   const [tempCoverImageUrl, setTempCoverImageUrl] = useState('');
+  const [generationMetadata, setGenerationMetadata] = useState<{
+    stopReason?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    wordCount?: number;
+  } | null>(null);
+  const [featureAudit, setFeatureAudit] = useState<{
+    selectedFeatures: string[];
+    foundFeatures: string[];
+    missingFeatures: string[];
+  } | null>(null);
 
   const toggleExpanded = useCallback((chapterId: string) => {
     setExpandedChapters(prev => {
@@ -263,6 +275,195 @@ export function ChapterEditorStep() {
         newExpanded.add(chapterId);
       }
       return newExpanded;
+    });
+  }, []);
+
+  // Feature audit function - checks which selected features are present in the content
+  const auditFeatures = useCallback((content: string, selectedFeatureIds: string[]) => {
+    if (!selectedFeatureIds || selectedFeatureIds.length === 0) {
+      setFeatureAudit(null);
+      return;
+    }
+
+    const foundFeatures: string[] = [];
+    const missingFeatures: string[] = [];
+
+    for (const featureId of selectedFeatureIds) {
+      const feature = MYST_FEATURES_DATA.find(f => f.id === featureId);
+      if (!feature) continue;
+
+      // Check for various patterns that indicate the feature is used
+      let isFound = false;
+
+      // Check based on feature category and type
+      switch (feature.id) {
+        // Admonitions - check for :::{type} or ```{type}
+        case 'note':
+        case 'tip':
+        case 'hint':
+        case 'important':
+        case 'warning':
+        case 'caution':
+        case 'attention':
+        case 'danger':
+        case 'error':
+        case 'seealso':
+          isFound = content.includes(`:::{${feature.id}}`) || content.includes(`\`\`\`{${feature.id}}`);
+          break;
+
+        // Dropdown admonition
+        case 'admonition-dropdown':
+          isFound = content.includes(':class: dropdown');
+          break;
+
+        // Custom admonition
+        case 'admonition-custom':
+          isFound = content.includes(':::{admonition}');
+          break;
+
+        // UI Components
+        case 'dropdown':
+          isFound = content.includes(':::{dropdown}');
+          break;
+        case 'card':
+        case 'card-link':
+          isFound = content.includes(':::{card}') || content.includes('```{card}');
+          break;
+        case 'grid':
+          isFound = content.includes('::::{grid}') || content.includes(':::{grid}');
+          break;
+        case 'tab-set':
+          isFound = content.includes('::::{tab-set}') || content.includes(':::{tab-item}');
+          break;
+        case 'button':
+          isFound = content.includes('{button}');
+          break;
+
+        // Code features
+        case 'code-block':
+          isFound = /```\w+\n/.test(content);
+          break;
+        case 'code-caption':
+        case 'code-linenos':
+        case 'code-emphasize':
+        case 'code-filename':
+          isFound = content.includes('```{code}');
+          break;
+        case 'code-cell':
+          isFound = content.includes('```{code-cell}');
+          break;
+
+        // Math
+        case 'inline-math':
+          isFound = /\$[^$]+\$/.test(content) && !content.includes('$$');
+          break;
+        case 'equation-block':
+        case 'dollar-math':
+          isFound = content.includes('$$') || content.includes('```{math}');
+          break;
+
+        // Diagrams
+        case 'mermaid-flowchart':
+        case 'mermaid-sequence':
+        case 'mermaid-class':
+        case 'mermaid-state':
+        case 'mermaid-gantt':
+        case 'mermaid-pie':
+          isFound = content.includes('```{mermaid}') || content.includes('```mermaid');
+          break;
+
+        // Exercises
+        case 'exercise':
+          isFound = content.includes('```{exercise}');
+          break;
+        case 'solution':
+          isFound = content.includes('```{solution}') || content.includes('````{solution}');
+          break;
+
+        // Figures
+        case 'figure':
+          isFound = content.includes('```{figure}') || content.includes(':::{figure}');
+          break;
+        case 'image':
+          isFound = content.includes('```{image}') || content.includes('![');
+          break;
+
+        // Tables
+        case 'markdown-table':
+          isFound = /\|.*\|.*\n\|[-:]+\|/.test(content);
+          break;
+        case 'list-table':
+          isFound = content.includes('```{list-table}');
+          break;
+        case 'csv-table':
+          isFound = content.includes('```{csv-table}');
+          break;
+
+        // References
+        case 'cross-reference':
+          isFound = content.includes('[](#') || content.includes('{ref}');
+          break;
+        case 'footnote':
+          isFound = /\[\^\w+\]/.test(content);
+          break;
+
+        // Proofs and theorems
+        case 'theorem':
+        case 'proof':
+        case 'lemma':
+        case 'definition':
+        case 'corollary':
+        case 'proposition':
+        case 'axiom':
+        case 'algorithm':
+          isFound = content.includes(`:::{prf:${feature.id}}`);
+          break;
+
+        // Interactive code
+        case 'jupyterlite':
+          isFound = content.includes('[jupyterlite]');
+          break;
+        case 'pyodide':
+          isFound = content.includes('[pyodide]');
+          break;
+        case 'thebe':
+          isFound = content.includes('[thebe');
+          break;
+
+        // Default: check if syntax pattern appears in content
+        default:
+          // Try to extract a key pattern from the syntax
+          const syntaxParts = feature.syntax.split('\n')[0];
+          if (syntaxParts.includes(':::')) {
+            const match = syntaxParts.match(/:::{?(\w+)/);
+            if (match) {
+              isFound = content.toLowerCase().includes(match[0].toLowerCase());
+            }
+          } else if (syntaxParts.includes('```')) {
+            const match = syntaxParts.match(/```{?(\w+)/);
+            if (match) {
+              isFound = content.toLowerCase().includes(match[0].toLowerCase());
+            }
+          } else if (syntaxParts.includes('{')) {
+            const match = syntaxParts.match(/{(\w+)}/);
+            if (match) {
+              isFound = content.includes(`{${match[1]}`);
+            }
+          }
+          break;
+      }
+
+      if (isFound) {
+        foundFeatures.push(featureId);
+      } else {
+        missingFeatures.push(featureId);
+      }
+    }
+
+    setFeatureAudit({
+      selectedFeatures: selectedFeatureIds,
+      foundFeatures,
+      missingFeatures,
     });
   }, []);
 
@@ -506,6 +707,8 @@ export function ChapterEditorStep() {
 
     setIsGenerating(true);
     setEditedContent(''); // Clear content for streaming
+    setGenerationMetadata(null); // Reset metadata
+    setFeatureAudit(null); // Reset audit
     console.log('Starting generation...');
 
     try {
@@ -599,6 +802,17 @@ export function ChapterEditorStep() {
                 if (data.done && data.content) {
                   accumulatedContent = data.content;
                   setEditedContent(accumulatedContent);
+
+                  // Capture metadata from generation
+                  if (data.metadata) {
+                    setGenerationMetadata(data.metadata);
+                    console.log('Generation metadata:', data.metadata);
+                  }
+
+                  // Run feature audit
+                  if (selectedChapter.selectedFeatures?.length) {
+                    auditFeatures(accumulatedContent, selectedChapter.selectedFeatures);
+                  }
                 }
               } catch (parseError) {
                 // Skip invalid JSON lines
@@ -1761,6 +1975,116 @@ ${editedContent}`,
                             ) : null;
                           })}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Generation Metadata & Feature Audit */}
+                    {(generationMetadata || featureAudit) && editedContent && (
+                      <div className="space-y-3">
+                        {/* Generation Metadata */}
+                        {generationMetadata && (
+                          <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                              <Info className="h-4 w-4" />
+                              Generation Stats
+                            </p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Word Count:</span>
+                                <span className="ml-1 font-medium text-gray-900 dark:text-white">
+                                  {generationMetadata.wordCount?.toLocaleString() || 'N/A'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Target:</span>
+                                <span className="ml-1 font-medium text-gray-900 dark:text-white">{targetWordCount.toLocaleString()}</span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Stop Reason:</span>
+                                <span className={`ml-1 font-medium ${
+                                  generationMetadata.stopReason === 'end_turn'
+                                    ? 'text-green-600 dark:text-green-400'
+                                    : generationMetadata.stopReason === 'max_tokens'
+                                    ? 'text-orange-600 dark:text-orange-400'
+                                    : 'text-gray-900 dark:text-white'
+                                }`}>
+                                  {generationMetadata.stopReason || 'N/A'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-500 dark:text-gray-400">Tokens:</span>
+                                <span className="ml-1 font-medium text-gray-900 dark:text-white">
+                                  {generationMetadata.outputTokens?.toLocaleString() || 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                            {generationMetadata.wordCount && generationMetadata.wordCount < targetWordCount * 0.8 && (
+                              <p className="mt-2 text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                                <AlertTriangle className="h-3 w-3" />
+                                Content is below 80% of target word count. Consider regenerating.
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Feature Audit Results */}
+                        {featureAudit && (
+                          <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                              <CheckCircle className="h-4 w-4" />
+                              Feature Audit
+                              <span className={`ml-auto text-xs px-2 py-0.5 rounded ${
+                                featureAudit.missingFeatures.length === 0
+                                  ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                                  : 'bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300'
+                              }`}>
+                                {featureAudit.foundFeatures.length}/{featureAudit.selectedFeatures.length} features found
+                              </span>
+                            </p>
+
+                            {featureAudit.foundFeatures.length > 0 && (
+                              <div className="mb-2">
+                                <p className="text-xs text-green-600 dark:text-green-400 font-medium mb-1">
+                                  ✓ Found ({featureAudit.foundFeatures.length}):
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {featureAudit.foundFeatures.map(featureId => {
+                                    const feature = MYST_FEATURES_DATA.find(f => f.id === featureId);
+                                    return (
+                                      <span
+                                        key={featureId}
+                                        className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300 rounded"
+                                      >
+                                        {feature?.name || featureId}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {featureAudit.missingFeatures.length > 0 && (
+                              <div>
+                                <p className="text-xs text-orange-600 dark:text-orange-400 font-medium mb-1">
+                                  ✗ Missing ({featureAudit.missingFeatures.length}):
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {featureAudit.missingFeatures.map(featureId => {
+                                    const feature = MYST_FEATURES_DATA.find(f => f.id === featureId);
+                                    return (
+                                      <span
+                                        key={featureId}
+                                        className="px-2 py-0.5 text-xs bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded"
+                                      >
+                                        {feature?.name || featureId}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 

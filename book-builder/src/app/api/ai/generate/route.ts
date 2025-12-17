@@ -12,6 +12,8 @@ interface GenerateRequest {
     bookDescription?: string;
     chapterTitle?: string;
     previousContent?: string;
+    systemPromptOverride?: string;
+    targetWordCount?: number;
   };
 }
 
@@ -93,7 +95,19 @@ Rules:
 - Output ONLY valid JSON array, no markdown, no explanation
 - Ensure JSON is COMPLETE - do not truncate`;
 
-    case 'chapter':
+    case 'chapter': {
+      // Use custom system prompt if provided
+      if (context?.systemPromptOverride) {
+        const wordCountNote = context?.targetWordCount
+          ? `\n\nIMPORTANT: You MUST write approximately ${context.targetWordCount} words. This is a hard requirement - do not stop early.`
+          : '';
+        return `${context.systemPromptOverride}${wordCountNote}`;
+      }
+
+      const wordCountRequirement = context?.targetWordCount
+        ? `\n\nCRITICAL REQUIREMENT: Write approximately ${context.targetWordCount} words. Do NOT stop early. Continue writing until you reach the target word count. If you feel you've covered the main topics, add more detail, examples, exercises, or related concepts to meet the word count.`
+        : '';
+
       return `You are an expert technical writer creating content for the book "${context?.bookTitle || 'Technical Book'}".
 
 Book Description: ${context?.bookDescription || 'A technical book'}
@@ -113,8 +127,10 @@ Guidelines:
 - Add figures and diagrams descriptions where helpful
 - Make content accessible and educational
 - Include exercises or practice sections where appropriate
+${wordCountRequirement}
 
-Write comprehensive, well-structured content that teaches the reader effectively.`;
+Write comprehensive, well-structured content that teaches the reader effectively. DO NOT stop until you have written substantial, complete content.`;
+    }
 
     case 'content':
       return `You are a technical writing assistant. Help improve and expand the provided content while maintaining MyST Markdown format.
@@ -191,6 +207,9 @@ function streamWithClaude(
         const decoder = new TextDecoder();
         let buffer = '';
         let fullContent = '';
+        let stopReason = '';
+        let inputTokens = 0;
+        let outputTokens = 0;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -215,9 +234,36 @@ function streamWithClaude(
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chunk: parsed.delta.text })}\n\n`));
                 }
 
+                // Handle message_delta - contains stop_reason and usage
+                if (parsed.type === 'message_delta') {
+                  if (parsed.delta?.stop_reason) {
+                    stopReason = parsed.delta.stop_reason;
+                    console.log(`Claude stop reason: ${stopReason}`);
+                  }
+                  if (parsed.usage?.output_tokens) {
+                    outputTokens = parsed.usage.output_tokens;
+                  }
+                }
+
+                // Handle message_start - contains input token count
+                if (parsed.type === 'message_start' && parsed.message?.usage) {
+                  inputTokens = parsed.message.usage.input_tokens;
+                }
+
                 // Handle message_stop to send final content
                 if (parsed.type === 'message_stop') {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`));
+                  console.log(`Claude generation complete. Stop reason: ${stopReason}, Input tokens: ${inputTokens}, Output tokens: ${outputTokens}`);
+                  // Include metadata in the final response
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+                    done: true,
+                    content: fullContent,
+                    metadata: {
+                      stopReason,
+                      inputTokens,
+                      outputTokens,
+                      wordCount: fullContent.split(/\s+/).length
+                    }
+                  })}\n\n`));
                 }
 
                 // Handle errors
@@ -233,7 +279,17 @@ function streamWithClaude(
 
         // Ensure we send the final content if message_stop wasn't received
         if (fullContent && !buffer.includes('message_stop')) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`));
+          console.log(`Stream ended without message_stop. Content length: ${fullContent.length} chars`);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+            done: true,
+            content: fullContent,
+            metadata: {
+              stopReason: stopReason || 'stream_ended',
+              inputTokens,
+              outputTokens,
+              wordCount: fullContent.split(/\s+/).length
+            }
+          })}\n\n`));
         }
 
         controller.close();

@@ -29,6 +29,17 @@ export async function POST(request: NextRequest) {
     const { data: user } = await octokit.users.getAuthenticated();
     console.log('Authenticated as:', user.login, '- Type:', user.type);
 
+    // Sanitize description for GitHub (max 350 chars, no control characters)
+    const sanitizeDescription = (desc: string | undefined): string => {
+      if (!desc) return '';
+      // Remove control characters (newlines, tabs, etc.) and trim
+      const cleaned = desc.replace(/[\x00-\x1F\x7F]/g, ' ').replace(/\s+/g, ' ').trim();
+      // Truncate to 350 characters
+      return cleaned.length > 350 ? cleaned.substring(0, 347) + '...' : cleaned;
+    };
+
+    const sanitizedDescription = sanitizeDescription(bookConfig.description);
+
     // Generate book files
     const files = generateBookFiles(bookConfig);
 
@@ -108,7 +119,7 @@ export async function POST(request: NextRequest) {
         const response = await octokit.repos.createInOrg({
           org: user.login,
           name: repoName,
-          description: bookConfig.description,
+          description: sanitizedDescription,
           auto_init: true,
           visibility: 'public',
         });
@@ -117,7 +128,7 @@ export async function POST(request: NextRequest) {
         // Create repo for authenticated user
         const response = await octokit.repos.createForAuthenticatedUser({
           name: repoName,
-          description: bookConfig.description,
+          description: sanitizedDescription,
           auto_init: true,
           private: false,
         });

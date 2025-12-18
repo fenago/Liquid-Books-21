@@ -147,13 +147,14 @@ export function GenerateBookStep() {
       setPollCount(pollCountRef.current);
 
       // Stop if: shouldStop is true (success or failure), or max retries reached
-      if (shouldStop || pollCountRef.current >= 10) {
+      // With 15 second intervals, 40 polls = 10 minutes
+      if (shouldStop || pollCountRef.current >= 40) {
         return; // Stop polling
       }
 
       if (isActive) {
-        // Poll every 60 seconds for up to 10 minutes (saves API calls)
-        setTimeout(poll, 60000);
+        // Poll every 15 seconds for up to 10 minutes
+        setTimeout(poll, 15000);
       }
     };
 
@@ -504,7 +505,7 @@ export function GenerateBookStep() {
               </div>
               <p className="text-sm text-yellow-700 dark:text-yellow-400">
                 GitHub Actions is building and deploying your book. This typically takes 1-3 minutes.
-                {pollCount > 0 && ` (Auto-checking every minute - ${pollCount}/10)`}
+                {pollCount > 0 && ` (Auto-checking every 15 seconds - ${pollCount}/40)`}
               </p>
               {deploymentInfo && (
                 <div className="text-xs text-yellow-600 dark:text-yellow-500 space-y-1">

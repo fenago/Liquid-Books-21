@@ -8,7 +8,7 @@ interface UserMenuProps {
 }
 
 export function UserMenu({ onOpenAuth }: UserMenuProps) {
-  const { user, profile, isAuthenticated, signOut, loading } = useAuth();
+  const { user, profile, isAuthenticated, signOut, loading, isConfigured } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -22,6 +22,11 @@ export function UserMenu({ onOpenAuth }: UserMenuProps) {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Don't show anything if Supabase isn't configured
+  if (!isConfigured) {
+    return null;
+  }
 
   if (loading) {
     return (

@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
-import { getSupabaseClient } from '@/lib/supabase/client';
+import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase/client';
 import { LQ21Profile } from '@/lib/supabase/types';
 
 export function useAuth() {
@@ -11,10 +11,15 @@ export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const supabase = getSupabaseClient();
+  const isConfigured = isSupabaseConfigured();
+  const supabase = useMemo(() => {
+    if (!isConfigured) return null;
+    return getSupabaseClient();
+  }, [isConfigured]);
 
   // Fetch user profile from LQ21_profiles
   const fetchProfile = useCallback(async (userId: string) => {
+    if (!supabase) return null;
     const { data, error } = await supabase
       .from('lq21_profiles')
       .select('*')
@@ -29,6 +34,11 @@ export function useAuth() {
   }, [supabase]);
 
   useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
     // Get initial session
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -64,6 +74,7 @@ export function useAuth() {
   }, [supabase, fetchProfile]);
 
   const signInWithEmail = async (email: string, password: string) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -72,6 +83,7 @@ export function useAuth() {
   };
 
   const signUpWithEmail = async (email: string, password: string, displayName?: string) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -85,6 +97,7 @@ export function useAuth() {
   };
 
   const signInWithOAuth = async (provider: 'google' | 'github') => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
@@ -95,11 +108,13 @@ export function useAuth() {
   };
 
   const signOut = async () => {
+    if (!supabase) return { error: new Error('Supabase not configured') };
     const { error } = await supabase.auth.signOut();
     return { error };
   };
 
   const resetPassword = async (email: string) => {
+    if (!supabase) return { data: null, error: new Error('Supabase not configured') };
     const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/auth/reset-password`,
     });
@@ -117,5 +132,6 @@ export function useAuth() {
     signOut,
     resetPassword,
     isAuthenticated: !!user,
+    isConfigured,
   };
 }

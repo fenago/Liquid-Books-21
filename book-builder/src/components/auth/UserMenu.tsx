@@ -23,22 +23,9 @@ export function UserMenu({ onOpenAuth }: UserMenuProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Debug: Log configuration status
-  useEffect(() => {
-    console.log('Supabase configured:', isConfigured);
-    console.log('NEXT_PUBLIC_SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET');
-  }, [isConfigured]);
-
-  // Show debug button if Supabase isn't configured
+  // If Supabase isn't configured, don't show the user menu
   if (!isConfigured) {
-    return (
-      <button
-        onClick={() => alert('Supabase not configured. Check env vars:\nNEXT_PUBLIC_SUPABASE_URL\nNEXT_PUBLIC_SUPABASE_ANON_KEY')}
-        className="px-4 py-2 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
-      >
-        Auth Not Configured
-      </button>
-    );
+    return null;
   }
 
   if (loading) {

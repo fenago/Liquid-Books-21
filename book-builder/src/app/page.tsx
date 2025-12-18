@@ -2,6 +2,7 @@
 
 import { useBookStore } from '@/store/useBookStore';
 import { WizardContainer } from '@/components/WizardContainer';
+import { AuthGate } from '@/components/auth/AuthGate';
 import {
   AISetupStep,
   BookDescriptionStep,
@@ -37,8 +38,10 @@ export default function Home() {
   };
 
   return (
-    <WizardContainer>
-      {renderStep()}
-    </WizardContainer>
+    <AuthGate>
+      <WizardContainer>
+        {renderStep()}
+      </WizardContainer>
+    </AuthGate>
   );
 }

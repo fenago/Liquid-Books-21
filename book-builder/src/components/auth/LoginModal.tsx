@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -17,7 +17,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
-  const { signIn, signUp, signInWithGitHub, signInWithGoogle } = useAuth();
+  const { signInWithEmail, signUpWithEmail, signInWithOAuth } = useAuth();
 
   if (!isOpen) return null;
 
@@ -29,14 +29,14 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
     try {
       if (mode === 'login') {
-        const { error } = await signIn(email, password);
+        const { error } = await signInWithEmail(email, password);
         if (error) {
           setError(error.message);
         } else {
           onClose();
         }
       } else {
-        const { error } = await signUp(email, password, displayName);
+        const { error } = await signUpWithEmail(email, password, displayName);
         if (error) {
           setError(error.message);
         } else {
@@ -52,7 +52,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
   const handleGitHub = async () => {
     setError(null);
-    const { error } = await signInWithGitHub();
+    const { error } = await signInWithOAuth('github');
     if (error) {
       setError(error.message);
     }
@@ -60,7 +60,7 @@ export function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
   const handleGoogle = async () => {
     setError(null);
-    const { error } = await signInWithGoogle();
+    const { error } = await signInWithOAuth('google');
     if (error) {
       setError(error.message);
     }

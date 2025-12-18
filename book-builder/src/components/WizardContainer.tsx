@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useBookStore } from '@/store/useBookStore';
 import { WizardStep } from '@/types';
 import {
@@ -11,8 +12,9 @@ import {
   Rocket,
   Edit,
   CheckCircle,
-  Circle
 } from 'lucide-react';
+import { UserMenu } from '@/components/auth/UserMenu';
+import { LoginModal } from '@/components/auth/LoginModal';
 
 const STEPS: { id: WizardStep; label: string; icon: React.ReactNode }[] = [
   { id: 'ai-setup', label: 'AI Setup', icon: <Key size={20} /> },
@@ -30,6 +32,7 @@ interface WizardContainerProps {
 
 export function WizardContainer({ children }: WizardContainerProps) {
   const { currentStep, setCurrentStep } = useBookStore();
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const currentStepIndex = STEPS.findIndex((s) => s.id === currentStep);
 
@@ -52,9 +55,12 @@ export function WizardContainer({ children }: WizardContainerProps) {
                 Liquid Books
               </h1>
             </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              AI-Powered Book Builder
-            </p>
+            <div className="flex items-center gap-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">
+                AI-Powered Book Builder
+              </p>
+              <UserMenu onOpenAuth={() => setShowLoginModal(true)} />
+            </div>
           </div>
         </div>
       </header>
@@ -133,6 +139,12 @@ export function WizardContainer({ children }: WizardContainerProps) {
           {children}
         </div>
       </div>
+
+      {/* Login Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+      />
     </div>
   );
 }

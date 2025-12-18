@@ -269,6 +269,9 @@ export function ChapterEditorStep() {
     foundFeatures: string[];
     missingFeatures: string[];
   } | null>(null);
+  const [isContinuing, setIsContinuing] = useState(false);
+  const [continuationAttempts, setContinuationAttempts] = useState(0);
+  const MAX_CONTINUATION_ATTEMPTS = 5; // Max times to auto-continue
 
   // Initialize all chapters' features from book-level selections on mount
   useEffect(() => {
@@ -1006,17 +1009,39 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
           const lastChar = trimmed.slice(-1);
           const endsProperlyChars = ['.', '!', '?', '`', '"', "'", ')', ']', '}', ':'];
           const appearsComplete = endsProperlyChars.includes(lastChar);
+          const currentWordCount = accumulatedContent.split(/\s+/).length;
 
-          if (!appearsComplete) {
+          // Auto-continue if content appears truncated and we haven't exceeded max attempts
+          // and current word count is below 80% of target
+          if (!appearsComplete && continuationAttempts < MAX_CONTINUATION_ATTEMPTS && currentWordCount < targetWordCount * 0.8) {
+            console.log(`Content truncated at ${currentWordCount} words. Auto-continuing... (attempt ${continuationAttempts + 1}/${MAX_CONTINUATION_ATTEMPTS})`);
+            setGenerationMetadata({
+              stopReason: 'continuing',
+              wordCount: currentWordCount
+            });
+
+            // Trigger continuation
+            setContinuationAttempts(prev => prev + 1);
+            setIsContinuing(true);
+
+            // Continue generation with existing content
+            await continueFromTruncation(accumulatedContent, chapterProvider, effectiveApiKey, effectiveModel, selectedChapter);
+            return; // Exit - continuation function will handle the rest
+          } else if (!appearsComplete) {
             console.error('Content appears truncated - ends with:', trimmed.slice(-50));
-            // Still keep the content but warn the user
+            // Max attempts reached or close enough to target - show warning
             setGenerationMetadata({
               stopReason: 'stream_truncated',
-              wordCount: accumulatedContent.split(/\s+/).length
+              wordCount: currentWordCount
             });
-            alert('⚠️ Content generation was cut off (likely server timeout). The partial content has been saved. Try regenerating or breaking this into smaller sections.');
+            if (continuationAttempts >= MAX_CONTINUATION_ATTEMPTS) {
+              console.warn(`Max continuation attempts (${MAX_CONTINUATION_ATTEMPTS}) reached`);
+            }
           }
         }
+
+        // Reset continuation attempts on successful completion
+        setContinuationAttempts(0);
 
         // Save the word count setting to the chapter
         updateChapterWordCount(selectedChapter.id, targetWordCount);
@@ -1037,6 +1062,197 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
       console.error('Generation error:', error);
       alert(error instanceof Error ? error.message : 'Failed to generate content');
     } finally {
+      setIsGenerating(false);
+      setIsContinuing(false);
+    }
+  };
+
+  // Continue generation from truncated content
+  const continueFromTruncation = async (
+    existingContent: string,
+    provider: AIProvider | null,
+    apiKey: string,
+    model: string | null,
+    chapter: Chapter
+  ) => {
+    console.log('continueFromTruncation called, existing word count:', existingContent.split(/\s+/).length);
+
+    try {
+      // Get the last ~500 characters for context (avoiding mid-word cuts)
+      const contextLength = 500;
+      let contextStart = Math.max(0, existingContent.length - contextLength);
+      // Find a good break point (space or newline)
+      while (contextStart > 0 && existingContent[contextStart] !== ' ' && existingContent[contextStart] !== '\n') {
+        contextStart++;
+      }
+      const lastContext = existingContent.substring(contextStart).trim();
+
+      const currentWordCount = existingContent.split(/\s+/).length;
+      const remainingWords = targetWordCount - currentWordCount;
+
+      const continuationPrompt = `Continue writing the chapter "${chapter.title}" from exactly where it was cut off.
+
+IMPORTANT:
+- Do NOT repeat any content that was already written
+- Continue SEAMLESSLY from the exact point where the previous text ended
+- Write approximately ${remainingWords} more words to reach the target of ${targetWordCount} words
+- Maintain the same style, tone, and format
+
+The chapter content ends with:
+"""
+${lastContext}
+"""
+
+Continue from this exact point (do not include the text above - just continue from where it stopped):`;
+
+      console.log('Making continuation API request...');
+
+      const response = await fetch('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider,
+          apiKey,
+          model,
+          prompt: continuationPrompt,
+          type: 'chapter',
+          context: {
+            bookTitle: bookConfig.title,
+            bookDescription: bookConfig.description,
+            chapterTitle: chapter.title,
+            targetWordCount: remainingWords,
+          },
+        }),
+      });
+
+      console.log('Continuation response status:', response.status);
+
+      const contentType = response.headers.get('content-type');
+      if (contentType?.includes('text/event-stream')) {
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body for continuation');
+        }
+
+        const decoder = new TextDecoder();
+        let accumulatedContinuation = '';
+        let buffer = '';
+        let receivedComplete = false;
+        let chunkCount = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log('Continuation stream done, chunks:', chunkCount);
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const jsonStr = line.slice(6);
+                if (!jsonStr.trim()) continue;
+
+                const data = JSON.parse(jsonStr);
+                chunkCount++;
+
+                if (data.error) {
+                  console.error('Continuation stream error:', data.error);
+                  throw new Error(data.error);
+                }
+
+                if (data.chunk) {
+                  accumulatedContinuation += data.chunk;
+                  // Update content in real-time (existing + continuation)
+                  setEditedContent(existingContent + accumulatedContinuation);
+                }
+
+                if (data.done && data.content) {
+                  console.log('Continuation complete, length:', data.content.length);
+                  receivedComplete = true;
+                  accumulatedContinuation = data.content;
+                  const fullContent = existingContent + accumulatedContinuation;
+                  setEditedContent(fullContent);
+
+                  const totalWordCount = fullContent.split(/\s+/).length;
+                  setGenerationMetadata({
+                    stopReason: data.metadata?.stopReason || 'end_turn',
+                    wordCount: totalWordCount,
+                    inputTokens: data.metadata?.inputTokens,
+                    outputTokens: data.metadata?.outputTokens,
+                  });
+
+                  // Run feature audit
+                  if (chapter.selectedFeatures?.length) {
+                    auditFeatures(fullContent, chapter.selectedFeatures);
+                  }
+                }
+              } catch (parseError) {
+                console.warn('JSON parse error in continuation:', parseError);
+              }
+            }
+          }
+        }
+
+        // Check if continuation also got truncated
+        if (accumulatedContinuation && !receivedComplete) {
+          const fullContent = existingContent + accumulatedContinuation;
+          const trimmed = fullContent.trim();
+          const lastChar = trimmed.slice(-1);
+          const endsProperlyChars = ['.', '!', '?', '`', '"', "'", ')', ']', '}', ':'];
+          const appearsComplete = endsProperlyChars.includes(lastChar);
+          const totalWordCount = fullContent.split(/\s+/).length;
+
+          // Continue again if still truncated and under limits
+          if (!appearsComplete && continuationAttempts < MAX_CONTINUATION_ATTEMPTS && totalWordCount < targetWordCount * 0.8) {
+            console.log(`Continuation also truncated at ${totalWordCount} words. Continuing again... (attempt ${continuationAttempts + 1})`);
+            setContinuationAttempts(prev => prev + 1);
+            setGenerationMetadata({
+              stopReason: 'continuing',
+              wordCount: totalWordCount
+            });
+            await continueFromTruncation(fullContent, provider, apiKey, model, chapter);
+            return;
+          } else {
+            // Done continuing
+            setGenerationMetadata({
+              stopReason: appearsComplete ? 'end_turn' : 'stream_truncated',
+              wordCount: totalWordCount
+            });
+            if (!appearsComplete && continuationAttempts >= MAX_CONTINUATION_ATTEMPTS) {
+              console.warn(`Max continuation attempts reached with ${totalWordCount} words`);
+            }
+          }
+        }
+      } else {
+        // Non-streaming response
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Continuation failed');
+        }
+        const fullContent = existingContent + data.content;
+        setEditedContent(fullContent);
+        setGenerationMetadata({
+          wordCount: fullContent.split(/\s+/).length
+        });
+      }
+
+      // Reset continuation state
+      setContinuationAttempts(0);
+      updateChapterWordCount(chapter.id, targetWordCount);
+    } catch (error) {
+      console.error('Continuation error:', error);
+      setGenerationMetadata({
+        stopReason: 'continuation_error',
+        wordCount: existingContent.split(/\s+/).length
+      });
+    } finally {
+      setIsContinuing(false);
       setIsGenerating(false);
     }
   };
@@ -2381,11 +2597,15 @@ ${editedContent}`,
                                 <span className={`ml-1 font-medium ${
                                   generationMetadata.stopReason === 'end_turn'
                                     ? 'text-green-600 dark:text-green-400'
-                                    : generationMetadata.stopReason === 'max_tokens'
+                                    : generationMetadata.stopReason === 'continuing'
+                                    ? 'text-blue-600 dark:text-blue-400'
+                                    : generationMetadata.stopReason === 'max_tokens' || generationMetadata.stopReason === 'stream_truncated'
                                     ? 'text-orange-600 dark:text-orange-400'
                                     : 'text-gray-900 dark:text-white'
                                 }`}>
-                                  {generationMetadata.stopReason || 'N/A'}
+                                  {generationMetadata.stopReason === 'continuing'
+                                    ? `Continuing... (${continuationAttempts}/${MAX_CONTINUATION_ATTEMPTS})`
+                                    : generationMetadata.stopReason || 'N/A'}
                                 </span>
                               </div>
                               <div>
@@ -2395,10 +2615,16 @@ ${editedContent}`,
                                 </span>
                               </div>
                             </div>
-                            {generationMetadata.wordCount && generationMetadata.wordCount < targetWordCount * 0.8 && (
+                            {generationMetadata.wordCount && generationMetadata.wordCount < targetWordCount * 0.8 && generationMetadata.stopReason !== 'continuing' && (
                               <p className="mt-2 text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
                                 <AlertTriangle className="h-3 w-3" />
                                 Content is below 80% of target word count. Consider regenerating.
+                              </p>
+                            )}
+                            {isContinuing && (
+                              <p className="mt-2 text-xs text-blue-600 dark:text-blue-400 flex items-center gap-1">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Auto-continuing from truncation point...
                               </p>
                             )}
                           </div>

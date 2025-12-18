@@ -8,10 +8,13 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-# Extend function timeout for AI streaming endpoints
-# Default is 10s, Pro tier supports up to 26s for standard functions
-# Background functions support up to 15 minutes but aren't suitable for streaming
+# Standard serverless functions config
 [functions]
-  # Set directory for serverless functions
   directory = ".netlify/functions"
+
+# Native Edge Function for AI generation - bypasses Next.js limitations
+# Edge functions have 40 second response header timeout (vs 30s for serverless)
+[[edge_functions]]
+  path = "/api/edge/generate"
+  function = "generate"
 

@@ -101,7 +101,7 @@ Rules:
     }, 3000);
 
     try {
-      const response = await fetch('/api/ai/generate', {
+      const response = await fetch('/api/edge/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -224,7 +224,7 @@ Generate a logical, well-structured table of contents that covers all the topics
     }, 2500);
 
     try {
-      const response = await fetch('/api/ai/generate', {
+      const response = await fetch('/api/edge/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

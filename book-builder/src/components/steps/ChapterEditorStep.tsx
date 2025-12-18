@@ -901,10 +901,11 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
         }
       }
 
-      console.log('Making API request to /api/ai/generate...');
+      // Use native Netlify Edge Function for longer timeout (40s vs 30s)
+      console.log('Making API request to /api/edge/generate...');
       console.log('Using model:', effectiveModel);
 
-      const response = await fetch('/api/ai/generate', {
+      const response = await fetch('/api/edge/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1144,9 +1145,9 @@ ${lastContext}
 
 Continue from this exact point (do not include the text above - just continue from where it stopped):`;
 
-      console.log('Making continuation API request...');
+      console.log('Making continuation API request to /api/edge/generate...');
 
-      const response = await fetch('/api/ai/generate', {
+      const response = await fetch('/api/edge/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1360,7 +1361,7 @@ Continue from this exact point (do not include the text above - just continue fr
         }
       }
 
-      const response = await fetch('/api/ai/generate', {
+      const response = await fetch('/api/edge/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

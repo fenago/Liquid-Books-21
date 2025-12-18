@@ -185,7 +185,14 @@ function streamWithClaude(
   // Use generous output limits for comprehensive chapter content
   const maxTokens = type === 'toc' ? 4096 : 64000;
 
-  console.log(`Streaming Claude API with model: ${model}, maxTokens: ${maxTokens}`);
+  console.log(`[CLAUDE DEBUG] ========================================`);
+  console.log(`[CLAUDE DEBUG] STARTING GENERATION`);
+  console.log(`[CLAUDE DEBUG] Model: ${model}`);
+  console.log(`[CLAUDE DEBUG] Max tokens: ${maxTokens}`);
+  console.log(`[CLAUDE DEBUG] Type: ${type}`);
+  console.log(`[CLAUDE DEBUG] System prompt length: ${systemPrompt.length} chars`);
+  console.log(`[CLAUDE DEBUG] User prompt length: ${userPrompt.length} chars`);
+  console.log(`[CLAUDE DEBUG] ========================================`);
 
   const encoder = new TextEncoder();
 
@@ -278,10 +285,16 @@ function streamWithClaude(
                 if (parsed.type === 'message_delta') {
                   if (parsed.delta?.stop_reason) {
                     stopReason = parsed.delta.stop_reason;
-                    console.log(`Claude stop reason: ${stopReason}`);
+                    const currentWordCount = fullContent.split(/\s+/).length;
+                    console.log(`[CLAUDE DEBUG] ========================================`);
+                    console.log(`[CLAUDE DEBUG] STOP REASON: ${stopReason}`);
+                    console.log(`[CLAUDE DEBUG] Word count at stop: ${currentWordCount}`);
+                    console.log(`[CLAUDE DEBUG] Character count: ${fullContent.length}`);
+                    console.log(`[CLAUDE DEBUG] ========================================`);
                   }
                   if (parsed.usage?.output_tokens) {
                     outputTokens = parsed.usage.output_tokens;
+                    console.log(`[CLAUDE DEBUG] Output tokens used: ${outputTokens}`);
                   }
                 }
 
@@ -292,7 +305,16 @@ function streamWithClaude(
 
                 // Handle message_stop to send final content
                 if (parsed.type === 'message_stop') {
-                  console.log(`Claude generation complete. Stop reason: ${stopReason}, Input tokens: ${inputTokens}, Output tokens: ${outputTokens}`);
+                  const finalWordCount = fullContent.split(/\s+/).length;
+                  console.log(`[CLAUDE DEBUG] ========================================`);
+                  console.log(`[CLAUDE DEBUG] GENERATION COMPLETE`);
+                  console.log(`[CLAUDE DEBUG] Stop reason: ${stopReason}`);
+                  console.log(`[CLAUDE DEBUG] Input tokens: ${inputTokens}`);
+                  console.log(`[CLAUDE DEBUG] Output tokens: ${outputTokens}`);
+                  console.log(`[CLAUDE DEBUG] Final word count: ${finalWordCount}`);
+                  console.log(`[CLAUDE DEBUG] Final char count: ${fullContent.length}`);
+                  console.log(`[CLAUDE DEBUG] Max tokens requested: ${maxTokens}`);
+                  console.log(`[CLAUDE DEBUG] ========================================`);
                   // Include metadata in the final response
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                     done: true,

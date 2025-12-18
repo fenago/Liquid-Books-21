@@ -985,7 +985,46 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
                   // Capture metadata from generation
                   if (data.metadata) {
                     setGenerationMetadata(data.metadata);
-                    console.log('Generation metadata:', data.metadata);
+                    console.log('%c[GENERATION COMPLETE]', 'background: #222; color: #bada55; font-size: 14px; padding: 4px;');
+                    console.log('%cStop Reason: ' + data.metadata.stopReason, 'color: #ff6b6b; font-weight: bold;');
+                    console.log('%cOutput Tokens: ' + data.metadata.outputTokens, 'color: #4ecdc4; font-weight: bold;');
+                    console.log('%cWord Count: ' + data.metadata.wordCount, 'color: #ffe66d; font-weight: bold;');
+                    console.log('%cTarget Word Count: ' + targetWordCount, 'color: #95e1d3; font-weight: bold;');
+                    console.log('%cInput Tokens: ' + data.metadata.inputTokens, 'color: #a8e6cf;');
+                    console.table({
+                      'Stop Reason': data.metadata.stopReason,
+                      'Output Tokens': data.metadata.outputTokens,
+                      'Word Count': data.metadata.wordCount,
+                      'Target Word Count': targetWordCount,
+                      'Percentage of Target': ((data.metadata.wordCount / targetWordCount) * 100).toFixed(1) + '%',
+                      'Input Tokens': data.metadata.inputTokens,
+                    });
+                  }
+
+                  // Check if Claude stopped early (end_turn) before reaching word count target
+                  const currentWordCount = accumulatedContent.split(/\s+/).length;
+                  const shouldContinue =
+                    data.metadata?.stopReason === 'end_turn' &&
+                    currentWordCount < targetWordCount * 0.8 &&
+                    continuationAttempts < MAX_CONTINUATION_ATTEMPTS;
+
+                  if (shouldContinue) {
+                    console.log('%c[AUTO-CONTINUATION TRIGGERED]', 'background: #ff6b6b; color: white; font-size: 14px; padding: 4px;');
+                    console.log(`Claude stopped early (end_turn) at ${currentWordCount}/${targetWordCount} words (${((currentWordCount/targetWordCount)*100).toFixed(1)}%). Auto-continuing... (attempt ${continuationAttempts + 1}/${MAX_CONTINUATION_ATTEMPTS})`);
+                    setGenerationMetadata({
+                      stopReason: 'continuing',
+                      wordCount: currentWordCount,
+                      inputTokens: data.metadata?.inputTokens,
+                      outputTokens: data.metadata?.outputTokens,
+                    });
+
+                    // Trigger continuation
+                    setContinuationAttempts(prev => prev + 1);
+                    setIsContinuing(true);
+
+                    // Continue generation with existing content
+                    await continueFromTruncation(accumulatedContent, chapterProvider, effectiveApiKey, effectiveModel, selectedChapter);
+                    return; // Exit - continuation function will handle the rest
                   }
 
                   // Run feature audit
@@ -1186,6 +1225,25 @@ Continue from this exact point (do not include the text above - just continue fr
                     inputTokens: data.metadata?.inputTokens,
                     outputTokens: data.metadata?.outputTokens,
                   });
+
+                  // Check if Claude stopped early again during continuation
+                  const shouldContinueAgain =
+                    data.metadata?.stopReason === 'end_turn' &&
+                    totalWordCount < targetWordCount * 0.8 &&
+                    continuationAttempts < MAX_CONTINUATION_ATTEMPTS;
+
+                  if (shouldContinueAgain) {
+                    console.log(`Continuation also stopped early (end_turn) at ${totalWordCount}/${targetWordCount} words. Continuing again... (attempt ${continuationAttempts + 1})`);
+                    setContinuationAttempts(prev => prev + 1);
+                    setGenerationMetadata({
+                      stopReason: 'continuing',
+                      wordCount: totalWordCount,
+                      inputTokens: data.metadata?.inputTokens,
+                      outputTokens: data.metadata?.outputTokens,
+                    });
+                    await continueFromTruncation(fullContent, provider, apiKey, model, chapter);
+                    return; // Exit - continuation will handle the rest
+                  }
 
                   // Run feature audit
                   if (chapter.selectedFeatures?.length) {

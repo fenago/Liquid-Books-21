@@ -15,7 +15,3 @@
   # Set directory for serverless functions
   directory = ".netlify/functions"
 
-# Specific function configuration for AI routes
-[[edge_functions]]
-  path = "/api/ai/*"
-  # Note: Edge functions have a 50 second limit which helps with streaming

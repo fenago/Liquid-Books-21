@@ -273,6 +273,11 @@ export function ChapterEditorStep() {
   const [continuationAttempts, setContinuationAttempts] = useState(0);
   const MAX_CONTINUATION_ATTEMPTS = 5; // Max times to auto-continue
 
+  // Build status polling
+  const [buildStatus, setBuildStatus] = useState<'idle' | 'polling' | 'building' | 'success' | 'failed'>('idle');
+  const [buildPollCount, setBuildPollCount] = useState(0);
+  const MAX_BUILD_POLLS = 40; // 40 polls * 5 seconds = ~3 minutes max
+
   // Initialize all chapters' features from book-level selections on mount
   useEffect(() => {
     // Map book-level features to MYST_FEATURES_DATA categories/IDs

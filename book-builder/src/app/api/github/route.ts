@@ -321,10 +321,10 @@ function generateBookFiles(bookConfig: BookConfig): { path: string; content: str
     content: generateFooter(),
   });
 
-  // Generate custom header with book branding
+  // Generate custom CSS to hide MyST branding and style book title
   files.push({
-    path: 'header.md',
-    content: generateHeader(bookConfig.title),
+    path: 'styles.css',
+    content: generateCustomStyles(),
   });
 
   return files;
@@ -341,7 +341,7 @@ function generateMystConfig(bookConfig: BookConfig): string {
   // Build site options from book-level features
   // Always hide MyST branding and use Liquid Books branding
   const siteOptions: Record<string, unknown> = {
-    hide_myst_branding: true,
+    style: 'styles.css',  // Load custom CSS to hide MyST branding
   };
   const exportOptions: Record<string, unknown> = {};
   const jupyterOptions: Record<string, unknown> = {};
@@ -468,8 +468,13 @@ ${generateTocYaml(bookConfig.tableOfContents.chapters, 4)}
 site:
   template: book-theme
   title: "${bookConfig.title}"
-${optionsSection}  parts:
-    header: header.md
+  nav:
+    - title: "${bookConfig.title}"
+      url: /
+${optionsSection}  actions:
+    - title: "${bookConfig.title}"
+      url: /
+  parts:
     footer: footer.md
 ${exportSection}`;
 }
@@ -787,5 +792,86 @@ function generateHeader(bookTitle: string): string {
 *A Liquid Books Publication*
 
 ::::
+`;
+}
+
+function generateCustomStyles(): string {
+  // CSS to hide MyST branding and add custom styling for Liquid Books
+  // The MyST branding appears in the sidebar/nav area, NOT the footer
+  return `/* Liquid Books Custom Styles */
+
+/* ========================================
+   HIDE MYST BRANDING - appears in sidebar/nav area above footer
+   ======================================== */
+
+/* Target ALL links to mystmd.org anywhere on the page */
+a[href*="mystmd.org"],
+a[href*="myst-tools"],
+a[href*="jupyter-book"] {
+  display: none !important;
+}
+
+/* Sidebar MyST branding - often in sidebar-footer or nav-footer */
+.sidebar-footer,
+.nav-footer,
+.sidebar-brand,
+.sidebar-myst,
+aside footer,
+aside .footer,
+nav footer,
+.toc-footer,
+.sidebar .powered-by,
+.sidebar-bottom {
+  display: none !important;
+}
+
+/* Generic powered-by sections */
+.powered-by,
+.made-with,
+.built-with,
+[class*="powered"],
+[class*="branding"] {
+  display: none !important;
+}
+
+/* MyST-specific class patterns */
+[class*="myst"],
+[class*="Myst"],
+[data-myst],
+.theme-myst-branding {
+  display: none !important;
+}
+
+/* Target text containing "Made with MyST" - hide parent containers */
+.sidebar a[href*="myst"],
+aside a[href*="myst"],
+nav a[href*="myst"] {
+  display: none !important;
+}
+
+/* Hide any small/muted text in sidebar that might be branding */
+.sidebar small,
+aside small,
+.sidebar .text-muted,
+aside .text-muted {
+  display: none !important;
+}
+
+/* ========================================
+   BOOK TITLE STYLING
+   ======================================== */
+.site-nav .nav-title,
+.navbar-brand,
+.site-title,
+.sidebar-title {
+  font-weight: bold;
+  font-size: 1.2rem;
+}
+
+/* Ensure our custom footer is visible */
+.page-footer,
+article footer {
+  display: block !important;
+}
 `;
 }

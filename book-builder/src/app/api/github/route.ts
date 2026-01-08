@@ -321,10 +321,10 @@ function generateBookFiles(bookConfig: BookConfig): { path: string; content: str
     content: generateFooter(),
   });
 
-  // Generate custom CSS to hide MyST branding and style book title
+  // Generate custom CSS to hide MyST branding and show book title
   files.push({
     path: 'styles.css',
-    content: generateCustomStyles(),
+    content: generateCustomStyles(bookConfig.title),
   });
 
   return files;
@@ -798,53 +798,47 @@ function generateHeader(bookTitle: string): string {
 `;
 }
 
-function generateCustomStyles(): string {
-  // CSS to hide MyST branding and add custom styling for Liquid Books
-  // The MyST branding appears in the sidebar/nav area, NOT the footer
+function generateCustomStyles(bookTitle: string): string {
+  // CSS to hide MyST branding and show book title instead
+  // The MyST theme ignores logo: text: config, so we use CSS to override
   return `/* Liquid Books Custom Styles */
 
 /* ========================================
-   HIDE MYST BRANDING - appears in sidebar/nav area above footer
+   HIDE MYST BRANDING - SPECIFIC ELEMENTS
    ======================================== */
 
-/* Target ALL links to mystmd.org anywhere on the page */
+/* Hide the "Made with MyST" text in the header home link */
+.myst-home-link span {
+  font-size: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Replace with book title using CSS */
+.myst-home-link span::after {
+  content: "${bookTitle.replace(/"/g, '\\"')}" !important;
+  font-size: 1rem !important;
+  visibility: visible !important;
+  font-weight: bold;
+}
+
+/* Hide the "Made with MyST" link in sidebar footer */
+.myst-made-with-myst {
+  display: none !important;
+}
+
+/* Also hide any links to mystmd.org */
 a[href*="mystmd.org"],
 a[href*="myst-tools"],
 a[href*="jupyter-book"] {
   display: none !important;
 }
 
-/* Hide only branding/powered-by text, NOT entire navigation containers */
-.sidebar .powered-by,
-.sidebar-myst-branding,
-.toc-footer .powered-by {
-  display: none !important;
-}
-
-/* Generic powered-by sections */
+/* Hide generic powered-by sections */
 .powered-by,
 .made-with,
-.built-with {
-  display: none !important;
-}
-
-/* MyST-specific branding elements only - NOT navigation classes */
-.theme-myst-branding,
+.built-with,
 .myst-branding,
 .myst-powered-by {
-  display: none !important;
-}
-
-/* Target text containing "Made with MyST" - hide parent containers */
-.sidebar a[href*="myst"],
-aside a[href*="myst"],
-nav a[href*="myst"] {
-  display: none !important;
-}
-
-/* Hide specific branding text only */
-.sidebar .branding-text,
-.sidebar .powered-by-text {
   display: none !important;
 }
 

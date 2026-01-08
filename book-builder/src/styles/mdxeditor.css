@@ -1,0 +1,210 @@
+/* MDXEditor Custom Styles */
+
+/* Base editor styling */
+.mdxeditor {
+  --accentBase: #2563eb; /* blue-600 */
+  --accentBgSubtle: #dbeafe; /* blue-100 */
+  --accentText: #1d4ed8; /* blue-700 */
+  --basePageBg: #ffffff;
+  --baseBgSubtle: #f9fafb; /* gray-50 */
+  --baseBgActive: #f3f4f6; /* gray-100 */
+  --baseText: #1f2937; /* gray-800 */
+  --baseTextContrast: #111827; /* gray-900 */
+  --borderDefault: #e5e7eb; /* gray-200 */
+}
+
+/* Dark mode styles */
+.dark .mdxeditor,
+[data-theme="dark"] .mdxeditor {
+  --accentBase: #3b82f6; /* blue-500 */
+  --accentBgSubtle: #1e3a5f; /* blue-900/50 */
+  --accentText: #60a5fa; /* blue-400 */
+  --basePageBg: #1f2937; /* gray-800 */
+  --baseBgSubtle: #374151; /* gray-700 */
+  --baseBgActive: #4b5563; /* gray-600 */
+  --baseText: #f3f4f6; /* gray-100 */
+  --baseTextContrast: #ffffff;
+  --borderDefault: #4b5563; /* gray-600 */
+}
+
+/* Editor container */
+.mdxeditor {
+  border-radius: 0.5rem;
+  border: 1px solid var(--borderDefault);
+  overflow: hidden;
+}
+
+/* Toolbar styling */
+.mdxeditor [class*="_toolbarRoot_"] {
+  background-color: var(--baseBgSubtle);
+  border-bottom: 1px solid var(--borderDefault);
+  padding: 0.5rem;
+  gap: 0.25rem;
+}
+
+/* Toolbar buttons */
+.mdxeditor [class*="_toolbarToggleButton_"],
+.mdxeditor [class*="_toolbarButton_"] {
+  color: var(--baseText);
+  border-radius: 0.375rem;
+  padding: 0.375rem;
+}
+
+.mdxeditor [class*="_toolbarToggleButton_"]:hover,
+.mdxeditor [class*="_toolbarButton_"]:hover {
+  background-color: var(--baseBgActive);
+}
+
+.mdxeditor [class*="_toolbarToggleButton_"][data-state="on"] {
+  background-color: var(--accentBgSubtle);
+  color: var(--accentText);
+}
+
+/* Separator */
+.mdxeditor [class*="_toolbarSeparator_"] {
+  background-color: var(--borderDefault);
+}
+
+/* Select dropdown */
+.mdxeditor [class*="_selectTrigger_"] {
+  background-color: var(--basePageBg);
+  border-color: var(--borderDefault);
+  color: var(--baseText);
+}
+
+.mdxeditor [class*="_selectContent_"] {
+  background-color: var(--basePageBg);
+  border-color: var(--borderDefault);
+}
+
+.mdxeditor [class*="_selectItem_"] {
+  color: var(--baseText);
+}
+
+.mdxeditor [class*="_selectItem_"]:hover,
+.mdxeditor [class*="_selectItem_"][data-highlighted] {
+  background-color: var(--baseBgActive);
+}
+
+/* Content area */
+.mdxeditor [data-lexical-editor="true"] {
+  background-color: var(--basePageBg);
+  color: var(--baseText);
+  min-height: 300px;
+  padding: 1rem;
+}
+
+/* Prose typography styles */
+.mdxeditor .prose {
+  max-width: none;
+}
+
+.mdxeditor .prose h1,
+.mdxeditor .prose h2,
+.mdxeditor .prose h3,
+.mdxeditor .prose h4,
+.mdxeditor .prose h5,
+.mdxeditor .prose h6 {
+  color: var(--baseTextContrast);
+}
+
+.mdxeditor .prose p,
+.mdxeditor .prose li {
+  color: var(--baseText);
+}
+
+.mdxeditor .prose a {
+  color: var(--accentText);
+}
+
+.mdxeditor .prose code {
+  background-color: var(--baseBgSubtle);
+  color: var(--baseText);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+
+.mdxeditor .prose pre {
+  background-color: var(--baseBgSubtle);
+  border: 1px solid var(--borderDefault);
+  border-radius: 0.5rem;
+}
+
+.mdxeditor .prose blockquote {
+  border-left-color: var(--accentBase);
+  color: var(--baseText);
+  opacity: 0.9;
+}
+
+.mdxeditor .prose hr {
+  border-color: var(--borderDefault);
+}
+
+.mdxeditor .prose table {
+  border-color: var(--borderDefault);
+}
+
+.mdxeditor .prose th {
+  background-color: var(--baseBgSubtle);
+  color: var(--baseTextContrast);
+}
+
+.mdxeditor .prose td,
+.mdxeditor .prose th {
+  border-color: var(--borderDefault);
+  padding: 0.5rem 0.75rem;
+}
+
+/* Image styling */
+.mdxeditor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+/* Code mirror (code blocks) */
+.dark .mdxeditor .cm-editor {
+  background-color: #0d1117;
+}
+
+.dark .mdxeditor .cm-gutters {
+  background-color: #161b22;
+  border-color: #30363d;
+}
+
+/* Dialog styling */
+.mdxeditor [class*="_dialogContent_"] {
+  background-color: var(--basePageBg);
+  border-color: var(--borderDefault);
+  color: var(--baseText);
+}
+
+.mdxeditor [class*="_dialogOverlay_"] {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Link dialog */
+.mdxeditor [class*="_linkDialogInput_"] {
+  background-color: var(--basePageBg);
+  border-color: var(--borderDefault);
+  color: var(--baseText);
+}
+
+.mdxeditor [class*="_linkDialogInput_"]::placeholder {
+  color: var(--baseText);
+  opacity: 0.5;
+}
+
+/* Placeholder text */
+.mdxeditor [data-lexical-editor="true"]:empty::before,
+.mdxeditor .editor-placeholder {
+  color: var(--baseText);
+  opacity: 0.5;
+}
+
+/* Focus states */
+.mdxeditor:focus-within {
+  border-color: var(--accentBase);
+  box-shadow: 0 0 0 2px var(--accentBgSubtle);
+}

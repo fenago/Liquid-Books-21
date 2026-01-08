@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useBookStore } from '@/store/useBookStore';
 import { Chapter, AIProvider, BookLevelFeature, BookLevelFeatureCategory } from '@/types';
 import { MYST_FEATURES_DATA, getFeaturesByCategory, MystFeatureCategory } from '@/data/mystFeatures';
 import { BOOK_LEVEL_FEATURES } from '@/data/bookLevelFeatures';
 import { MystPreview } from '@/components/MystPreview';
+import { ForwardRefEditor, type MDXEditorMethods } from '@/components/editor/ForwardRefEditor';
+import { useImageUpload } from '@/hooks/useImageUpload';
 import {
   ArrowLeft,
   ChevronUp,
@@ -37,6 +39,8 @@ import {
   ExternalLink,
   AlertTriangle,
   Image,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 type EditorTab = 'ai-generate' | 'manual-write';
@@ -272,11 +276,33 @@ export function ChapterEditorStep() {
   const [isContinuing, setIsContinuing] = useState(false);
   const [continuationAttempts, setContinuationAttempts] = useState(0);
   const MAX_CONTINUATION_ATTEMPTS = 5; // Max times to auto-continue
+  const [isEditorExpanded, setIsEditorExpanded] = useState(false);
 
   // Build status polling
   const [buildStatus, setBuildStatus] = useState<'idle' | 'polling' | 'building' | 'success' | 'failed'>('idle');
   const [buildPollCount, setBuildPollCount] = useState(0);
   const MAX_BUILD_POLLS = 40; // 40 polls * 5 seconds = ~3 minutes max
+
+  // MDXEditor ref for programmatic control
+  const editorRef = useRef<MDXEditorMethods>(null);
+
+  // Image upload hook for the editor
+  // Use github repo name or sanitized book title as the book ID for image storage
+  const bookId = bookConfig.github?.repoName || bookConfig.title?.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50) || 'draft';
+  const { uploadImage, isUploading: isUploadingImage, error: uploadError } = useImageUpload({
+    bookId,
+  });
+
+  // Handle Escape key to close expanded editor
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isEditorExpanded) {
+        setIsEditorExpanded(false);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isEditorExpanded]);
 
   // Initialize all chapters' features from book-level selections on mount
   useEffect(() => {
@@ -2443,8 +2469,22 @@ ${editedContent}`,
           </div>
         </div>
 
+        {/* Backdrop when expanded */}
+        {isEditorExpanded && (
+          <div
+            className="fixed inset-0 bg-black/50 z-40"
+            onClick={() => setIsEditorExpanded(false)}
+          />
+        )}
+
         {/* Editor Area */}
-        <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col">
+        <div className={`
+          ${isEditorExpanded
+            ? 'fixed inset-4 z-50 shadow-2xl'
+            : 'flex-1'
+          }
+          bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col
+        `}>
           {selectedChapter ? (
             <>
               {/* Chapter Header */}
@@ -2472,32 +2512,46 @@ ${editedContent}`,
                     </div>
                   </div>
                   {/* View Mode Toggle */}
-                  <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+                  <div className="flex items-center gap-2">
+                    <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+                      <button
+                        onClick={() => setViewMode('edit')}
+                        className={`
+                          px-3 py-1.5 text-sm font-medium flex items-center gap-1
+                          ${viewMode === 'edit'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }
+                        `}
+                      >
+                        <Edit3 className="h-4 w-4" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setViewMode('preview')}
+                        className={`
+                          px-3 py-1.5 text-sm font-medium flex items-center gap-1
+                          ${viewMode === 'preview'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                          }
+                        `}
+                      >
+                        <Eye className="h-4 w-4" />
+                        Preview
+                      </button>
+                    </div>
+                    {/* Expand/Collapse Button */}
                     <button
-                      onClick={() => setViewMode('edit')}
-                      className={`
-                        px-3 py-1.5 text-sm font-medium flex items-center gap-1
-                        ${viewMode === 'edit'
-                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }
-                      `}
+                      onClick={() => setIsEditorExpanded(!isEditorExpanded)}
+                      className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      title={isEditorExpanded ? 'Exit fullscreen' : 'Expand editor'}
                     >
-                      <Edit3 className="h-4 w-4" />
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => setViewMode('preview')}
-                      className={`
-                        px-3 py-1.5 text-sm font-medium flex items-center gap-1
-                        ${viewMode === 'preview'
-                          ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                        }
-                      `}
-                    >
-                      <Eye className="h-4 w-4" />
-                      Preview
+                      {isEditorExpanded ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2758,14 +2812,14 @@ ${editedContent}`,
 
                     {/* Generated Content */}
                     {viewMode === 'edit' ? (
-                      <textarea
-                        value={editedContent}
-                        onChange={(e) => setEditedContent(e.target.value)}
-                        placeholder="Generated content will appear here..."
-                        className="w-full h-64 p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      <ForwardRefEditor
+                        ref={editorRef}
+                        markdown={editedContent}
+                        onChange={setEditedContent}
+                        onImageUpload={uploadImage}
                       />
                     ) : (
-                      <div className="w-full h-64 p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">
+                      <div className="w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">
                         <MystPreview content={editedContent} />
                       </div>
                     )}
@@ -2819,11 +2873,11 @@ ${editedContent}`,
                     )}
 
                     {viewMode === 'edit' ? (
-                      <textarea
-                        value={editedContent}
-                        onChange={(e) => setEditedContent(e.target.value)}
-                        placeholder="Write your chapter content here using MyST Markdown format..."
-                        className="flex-1 w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      <ForwardRefEditor
+                        ref={editorRef}
+                        markdown={editedContent}
+                        onChange={setEditedContent}
+                        onImageUpload={uploadImage}
                       />
                     ) : (
                       <div className="flex-1 w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">

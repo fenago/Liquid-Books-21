@@ -450,5 +450,27 @@ async function generateWithGemini(
   }
 
   const data = await response.json();
-  return data.candidates[0].content.parts[0].text;
+
+  // Check for valid response structure
+  if (!data.candidates || data.candidates.length === 0) {
+    // Check if the response was blocked by safety filters
+    if (data.promptFeedback?.blockReason) {
+      throw new Error(`Content blocked by Gemini safety filters: ${data.promptFeedback.blockReason}`);
+    }
+    throw new Error('Gemini returned no candidates. The request may have been filtered or rate limited.');
+  }
+
+  const candidate = data.candidates[0];
+
+  // Check if this specific candidate was blocked
+  if (candidate.finishReason === 'SAFETY') {
+    const safetyRatings = candidate.safetyRatings?.map((r: { category: string; probability: string }) => `${r.category}: ${r.probability}`).join(', ');
+    throw new Error(`Content blocked by safety filters. Ratings: ${safetyRatings || 'unknown'}`);
+  }
+
+  if (!candidate.content?.parts?.[0]?.text) {
+    throw new Error(`Gemini returned an invalid response structure. Finish reason: ${candidate.finishReason || 'unknown'}`);
+  }
+
+  return candidate.content.parts[0].text;
 }

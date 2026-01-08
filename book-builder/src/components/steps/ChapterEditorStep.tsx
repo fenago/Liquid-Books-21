@@ -304,6 +304,16 @@ export function ChapterEditorStep() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isEditorExpanded]);
 
+  // Helper function to update editor content (both state and MDXEditor ref)
+  const updateEditorContent = useCallback((content: string) => {
+    setEditedContent(content);
+    // MDXEditor is not fully controlled, so we need to use setMarkdown via ref
+    // Use setTimeout to ensure the state update happens first
+    setTimeout(() => {
+      editorRef.current?.setMarkdown(content);
+    }, 0);
+  }, []);
+
   // Initialize all chapters' features from book-level selections on mount
   useEffect(() => {
     // Map book-level features to MYST_FEATURES_DATA categories/IDs
@@ -608,12 +618,12 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
 
   const selectChapter = useCallback((chapter: Chapter) => {
     setSelectedChapter(chapter);
-    setEditedContent(chapter.content || '');
+    updateEditorContent(chapter.content || '');
     setChapterDescription(chapter.description || '');
     setTargetWordCount(chapter.targetWordCount || 2000);
     setSaveStatus('idle');
     setEditorTab(chapter.inputMode === 'manual-write' ? 'manual-write' : 'ai-generate');
-  }, []);
+  }, [updateEditorContent]);
 
   const handleMoveUp = useCallback((chapterId: string, parentId?: string) => {
     moveChapterUp(chapterId, parentId);
@@ -628,10 +638,10 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
       removeChapter(chapterId);
       if (selectedChapter?.id === chapterId) {
         setSelectedChapter(null);
-        setEditedContent('');
+        updateEditorContent('');
       }
     }
-  }, [removeChapter, selectedChapter]);
+  }, [removeChapter, selectedChapter, updateEditorContent]);
 
   const handleAddSubChapter = useCallback((parentId: string) => {
     setAddChapterParentId(parentId);
@@ -1125,7 +1135,7 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
           throw new Error(data.error || 'Failed to generate content');
         }
 
-        setEditedContent(data.content);
+        updateEditorContent(data.content);
         // Save the word count setting to the chapter
         updateChapterWordCount(selectedChapter.id, targetWordCount);
       }
@@ -1248,7 +1258,7 @@ Continue from this exact point (do not include the text above - just continue fr
                   receivedComplete = true;
                   accumulatedContinuation = data.content;
                   const fullContent = existingContent + accumulatedContinuation;
-                  setEditedContent(fullContent);
+                  updateEditorContent(fullContent);
 
                   const totalWordCount = fullContent.split(/\s+/).length;
                   setGenerationMetadata({
@@ -1326,7 +1336,7 @@ Continue from this exact point (do not include the text above - just continue fr
           throw new Error(data.error || 'Continuation failed');
         }
         const fullContent = existingContent + data.content;
-        setEditedContent(fullContent);
+        updateEditorContent(fullContent);
         setGenerationMetadata({
           wordCount: fullContent.split(/\s+/).length
         });
@@ -1417,7 +1427,7 @@ ${editedContent}`,
         throw new Error(data.error || 'Failed to format content');
       }
 
-      setEditedContent(data.content);
+      updateEditorContent(data.content);
     } catch (error) {
       console.error('Formatting error:', error);
       alert(error instanceof Error ? error.message : 'Failed to format content');

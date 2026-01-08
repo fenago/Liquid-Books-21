@@ -468,12 +468,14 @@ ${generateTocYaml(bookConfig.tableOfContents.chapters, 4)}
 site:
   template: book-theme
   title: "${bookConfig.title}"
+  logo:
+    text: "${bookConfig.title}"
   nav:
     - title: "${bookConfig.title}"
-      url: /
+      url: .
 ${optionsSection}  actions:
     - title: "${bookConfig.title}"
-      url: /
+      url: .
   parts:
     footer: footer.md
 ${exportSection}`;

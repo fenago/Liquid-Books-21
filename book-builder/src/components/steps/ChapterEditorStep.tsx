@@ -310,15 +310,42 @@ export function ChapterEditorStep() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isEditorExpanded, isContentEditorFullscreen]);
 
+  // Helper function to detect MyST-specific syntax that MDXEditor can't parse
+  const hasMystSyntax = useCallback((content: string): boolean => {
+    if (!content) return false;
+    // MyST directive patterns that MDXEditor can't handle
+    const mystPatterns = [
+      /^:::\{/m,           // Admonitions like :::{note}, :::{warning}
+      /^::::\{/m,          // Nested directives like ::::{tab-set}
+      /^```\{/m,           // Code directives like ```{mermaid}, ```{code}
+      /^\{[a-z-]+\}/m,     // Inline roles like {math}`x^2`
+      /:::{[a-z-]+}/,      // Inline admonitions
+      /:::$/m,             // Closing directive markers
+    ];
+    return mystPatterns.some(pattern => pattern.test(content));
+  }, []);
+
+  // Auto-detect MyST syntax and switch to Raw mode when needed
+  useEffect(() => {
+    if (editedContent && hasMystSyntax(editedContent) && !useRawEditor) {
+      setUseRawEditor(true);
+    }
+  }, [editedContent, hasMystSyntax, useRawEditor]);
+
   // Helper function to update editor content (both state and MDXEditor ref)
   const updateEditorContent = useCallback((content: string) => {
     setEditedContent(content);
+    // If content has MyST syntax, don't try to update MDXEditor (it will fail)
+    if (hasMystSyntax(content)) {
+      setUseRawEditor(true);
+      return;
+    }
     // MDXEditor is not fully controlled, so we need to use setMarkdown via ref
     // Use setTimeout to ensure the state update happens first
     setTimeout(() => {
       editorRef.current?.setMarkdown(content);
     }, 0);
-  }, []);
+  }, [hasMystSyntax]);
 
   // Initialize all chapters' features from book-level selections on mount
   useEffect(() => {
@@ -2848,11 +2875,13 @@ ${editedContent}`,
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => setUseRawEditor(false)}
+                                disabled={hasMystSyntax(editedContent)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                                   !useRawEditor
                                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
+                                } ${hasMystSyntax(editedContent) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={hasMystSyntax(editedContent) ? 'Rich Editor cannot parse MyST syntax' : 'Switch to Rich Editor'}
                               >
                                 Rich Editor
                               </button>
@@ -2866,6 +2895,12 @@ ${editedContent}`,
                               >
                                 Raw Markdown
                               </button>
+                              {hasMystSyntax(editedContent) && (
+                                <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                  <Info className="h-3 w-3" />
+                                  MyST syntax detected
+                                </span>
+                              )}
                             </div>
                             <button
                               onClick={() => setIsContentEditorFullscreen(!isContentEditorFullscreen)}
@@ -2976,11 +3011,13 @@ ${editedContent}`,
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => setUseRawEditor(false)}
+                                disabled={hasMystSyntax(editedContent)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                                   !useRawEditor
                                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                }`}
+                                } ${hasMystSyntax(editedContent) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={hasMystSyntax(editedContent) ? 'Rich Editor cannot parse MyST syntax' : 'Switch to Rich Editor'}
                               >
                                 Rich Editor
                               </button>
@@ -2994,6 +3031,12 @@ ${editedContent}`,
                               >
                                 Raw Markdown
                               </button>
+                              {hasMystSyntax(editedContent) && (
+                                <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                  <Info className="h-3 w-3" />
+                                  MyST syntax detected
+                                </span>
+                              )}
                             </div>
                             <button
                               onClick={() => setIsContentEditorFullscreen(!isContentEditorFullscreen)}

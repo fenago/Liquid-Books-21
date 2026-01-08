@@ -277,6 +277,8 @@ export function ChapterEditorStep() {
   const [continuationAttempts, setContinuationAttempts] = useState(0);
   const MAX_CONTINUATION_ATTEMPTS = 5; // Max times to auto-continue
   const [isEditorExpanded, setIsEditorExpanded] = useState(false);
+  const [isContentEditorFullscreen, setIsContentEditorFullscreen] = useState(false);
+  const [useRawEditor, setUseRawEditor] = useState(false); // Fallback to textarea when MDXEditor fails
 
   // Build status polling
   const [buildStatus, setBuildStatus] = useState<'idle' | 'polling' | 'building' | 'success' | 'failed'>('idle');
@@ -293,16 +295,20 @@ export function ChapterEditorStep() {
     bookId,
   });
 
-  // Handle Escape key to close expanded editor
+  // Handle Escape key to close expanded editors
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isEditorExpanded) {
-        setIsEditorExpanded(false);
+      if (e.key === 'Escape') {
+        if (isContentEditorFullscreen) {
+          setIsContentEditorFullscreen(false);
+        } else if (isEditorExpanded) {
+          setIsEditorExpanded(false);
+        }
       }
     };
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [isEditorExpanded]);
+  }, [isEditorExpanded, isContentEditorFullscreen]);
 
   // Helper function to update editor content (both state and MDXEditor ref)
   const updateEditorContent = useCallback((content: string) => {
@@ -2822,12 +2828,79 @@ ${editedContent}`,
 
                     {/* Generated Content */}
                     {viewMode === 'edit' ? (
-                      <ForwardRefEditor
-                        ref={editorRef}
-                        markdown={editedContent}
-                        onChange={setEditedContent}
-                        onImageUpload={uploadImage}
-                      />
+                      <>
+                        {/* Fullscreen backdrop */}
+                        {isContentEditorFullscreen && (
+                          <div
+                            className="fixed inset-0 bg-black/50 z-40"
+                            onClick={() => setIsContentEditorFullscreen(false)}
+                          />
+                        )}
+                        {/* Editor container */}
+                        <div className={`
+                          ${isContentEditorFullscreen
+                            ? 'fixed inset-4 z-50 flex flex-col bg-white dark:bg-gray-800 rounded-xl shadow-2xl'
+                            : 'relative'
+                          }
+                        `}>
+                          {/* Editor toolbar */}
+                          <div className={`flex items-center justify-between gap-2 mb-2 ${isContentEditorFullscreen ? 'p-4 border-b border-gray-200 dark:border-gray-700' : ''}`}>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setUseRawEditor(false)}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  !useRawEditor
+                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                Rich Editor
+                              </button>
+                              <button
+                                onClick={() => setUseRawEditor(true)}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  useRawEditor
+                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                Raw Markdown
+                              </button>
+                            </div>
+                            <button
+                              onClick={() => setIsContentEditorFullscreen(!isContentEditorFullscreen)}
+                              className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              title={isContentEditorFullscreen ? 'Exit fullscreen (Esc)' : 'Expand editor'}
+                            >
+                              {isContentEditorFullscreen ? (
+                                <Minimize2 className="h-4 w-4" />
+                              ) : (
+                                <Maximize2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                          {/* Editor content */}
+                          <div className={isContentEditorFullscreen ? 'flex-1 overflow-auto p-4 pt-0' : ''}>
+                            {useRawEditor ? (
+                              <textarea
+                                value={editedContent}
+                                onChange={(e) => setEditedContent(e.target.value)}
+                                placeholder="Write your content in MyST Markdown format..."
+                                className={`w-full p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                  isContentEditorFullscreen ? 'h-full' : 'min-h-[300px]'
+                                }`}
+                              />
+                            ) : (
+                              <ForwardRefEditor
+                                ref={editorRef}
+                                markdown={editedContent}
+                                onChange={setEditedContent}
+                                onImageUpload={uploadImage}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </>
                     ) : (
                       <div className="w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">
                         <MystPreview content={editedContent} />
@@ -2883,12 +2956,79 @@ ${editedContent}`,
                     )}
 
                     {viewMode === 'edit' ? (
-                      <ForwardRefEditor
-                        ref={editorRef}
-                        markdown={editedContent}
-                        onChange={setEditedContent}
-                        onImageUpload={uploadImage}
-                      />
+                      <>
+                        {/* Fullscreen backdrop */}
+                        {isContentEditorFullscreen && (
+                          <div
+                            className="fixed inset-0 bg-black/50 z-40"
+                            onClick={() => setIsContentEditorFullscreen(false)}
+                          />
+                        )}
+                        {/* Editor container */}
+                        <div className={`
+                          ${isContentEditorFullscreen
+                            ? 'fixed inset-4 z-50 flex flex-col bg-white dark:bg-gray-800 rounded-xl shadow-2xl'
+                            : 'relative flex-1'
+                          }
+                        `}>
+                          {/* Editor toolbar */}
+                          <div className={`flex items-center justify-between gap-2 mb-2 ${isContentEditorFullscreen ? 'p-4 border-b border-gray-200 dark:border-gray-700' : ''}`}>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setUseRawEditor(false)}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  !useRawEditor
+                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                Rich Editor
+                              </button>
+                              <button
+                                onClick={() => setUseRawEditor(true)}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                                  useRawEditor
+                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                                }`}
+                              >
+                                Raw Markdown
+                              </button>
+                            </div>
+                            <button
+                              onClick={() => setIsContentEditorFullscreen(!isContentEditorFullscreen)}
+                              className="p-2 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                              title={isContentEditorFullscreen ? 'Exit fullscreen (Esc)' : 'Expand editor'}
+                            >
+                              {isContentEditorFullscreen ? (
+                                <Minimize2 className="h-4 w-4" />
+                              ) : (
+                                <Maximize2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                          {/* Editor content */}
+                          <div className={isContentEditorFullscreen ? 'flex-1 overflow-auto p-4 pt-0' : ''}>
+                            {useRawEditor ? (
+                              <textarea
+                                value={editedContent}
+                                onChange={(e) => setEditedContent(e.target.value)}
+                                placeholder="Write your content in MyST Markdown format..."
+                                className={`w-full p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                                  isContentEditorFullscreen ? 'h-full' : 'min-h-[300px]'
+                                }`}
+                              />
+                            ) : (
+                              <ForwardRefEditor
+                                ref={editorRef}
+                                markdown={editedContent}
+                                onChange={setEditedContent}
+                                onImageUpload={uploadImage}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </>
                     ) : (
                       <div className="flex-1 w-full min-h-[300px] p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 overflow-auto">
                         <MystPreview content={editedContent} />

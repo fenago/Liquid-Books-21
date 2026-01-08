@@ -24,13 +24,14 @@ export function useAuth() {
       .from('lq21_profiles')
       .select('*')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error fetching profile:', error);
       return null;
     }
-    return data as LQ21Profile;
+    // Return null if no profile exists (user hasn't created one yet)
+    return data as LQ21Profile | null;
   }, [supabase]);
 
   useEffect(() => {

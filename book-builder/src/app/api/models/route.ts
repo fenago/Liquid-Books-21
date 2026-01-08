@@ -153,8 +153,9 @@ async function getOpenAIModels(apiKey: string): Promise<AIModel[]> {
 
 async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
   try {
+    // Use v1beta to get all models including newest versions
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
     );
 
     if (!response.ok) {
@@ -164,19 +165,15 @@ async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
 
     const data = await response.json();
 
-    // Filter to generative models
-    const geminiModels = data.models
-      .filter((model: { name: string; supportedGenerationMethods: string[] }) =>
-        model.supportedGenerationMethods?.includes('generateContent') &&
-        model.name.includes('gemini')
-      )
+    // Return ALL models - no filtering
+    const allModels = data.models
       .map((model: { name: string; displayName: string }) => ({
         id: model.name.replace('models/', ''),
         name: model.displayName || model.name.replace('models/', ''),
         provider: 'gemini' as AIProvider,
       }));
 
-    return geminiModels;
+    return allModels;
   } catch (error) {
     throw new Error(`Gemini API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }

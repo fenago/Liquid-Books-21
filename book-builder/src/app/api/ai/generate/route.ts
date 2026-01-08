@@ -420,8 +420,9 @@ async function generateWithGemini(
   // Use high values to avoid truncation
   const maxTokens = type === 'toc' ? 32768 : 8192;
 
+  // Use v1beta to support all models
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: {

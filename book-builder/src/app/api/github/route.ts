@@ -811,34 +811,24 @@ a[href*="jupyter-book"] {
   display: none !important;
 }
 
-/* Sidebar MyST branding - often in sidebar-footer or nav-footer */
-.sidebar-footer,
-.nav-footer,
-.sidebar-brand,
-.sidebar-myst,
-aside footer,
-aside .footer,
-nav footer,
-.toc-footer,
+/* Hide only branding/powered-by text, NOT entire navigation containers */
 .sidebar .powered-by,
-.sidebar-bottom {
+.sidebar-myst-branding,
+.toc-footer .powered-by {
   display: none !important;
 }
 
 /* Generic powered-by sections */
 .powered-by,
 .made-with,
-.built-with,
-[class*="powered"],
-[class*="branding"] {
+.built-with {
   display: none !important;
 }
 
-/* MyST-specific class patterns */
-[class*="myst"],
-[class*="Myst"],
-[data-myst],
-.theme-myst-branding {
+/* MyST-specific branding elements only - NOT navigation classes */
+.theme-myst-branding,
+.myst-branding,
+.myst-powered-by {
   display: none !important;
 }
 
@@ -849,11 +839,9 @@ nav a[href*="myst"] {
   display: none !important;
 }
 
-/* Hide any small/muted text in sidebar that might be branding */
-.sidebar small,
-aside small,
-.sidebar .text-muted,
-aside .text-muted {
+/* Hide specific branding text only */
+.sidebar .branding-text,
+.sidebar .powered-by-text {
   display: none !important;
 }
 

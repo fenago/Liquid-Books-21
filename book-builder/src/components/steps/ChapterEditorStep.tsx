@@ -6,7 +6,12 @@ import { Chapter, AIProvider, BookLevelFeature, BookLevelFeatureCategory } from 
 import { MYST_FEATURES_DATA, getFeaturesByCategory, MystFeatureCategory } from '@/data/mystFeatures';
 import { BOOK_LEVEL_FEATURES } from '@/data/bookLevelFeatures';
 import { MystPreview } from '@/components/MystPreview';
-import { ForwardRefEditor, type MDXEditorMethods } from '@/components/editor/ForwardRefEditor';
+import {
+  ForwardRefEditor,
+  type MDXEditorMethods,
+  mystToRemarkDirective,
+  remarkDirectiveToMyst,
+} from '@/components/editor/ForwardRefEditor';
 import { useImageUpload } from '@/hooks/useImageUpload';
 import {
   ArrowLeft,
@@ -310,42 +315,29 @@ export function ChapterEditorStep() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isEditorExpanded, isContentEditorFullscreen]);
 
-  // Helper function to detect MyST-specific syntax that MDXEditor can't parse
-  const hasMystSyntax = useCallback((content: string): boolean => {
-    if (!content) return false;
-    // MyST directive patterns that MDXEditor can't handle
-    const mystPatterns = [
-      /^:::\{/m,           // Admonitions like :::{note}, :::{warning}
-      /^::::\{/m,          // Nested directives like ::::{tab-set}
-      /^```\{/m,           // Code directives like ```{mermaid}, ```{code}
-      /^\{[a-z-]+\}/m,     // Inline roles like {math}`x^2`
-      /:::{[a-z-]+}/,      // Inline admonitions
-      /:::$/m,             // Closing directive markers
-    ];
-    return mystPatterns.some(pattern => pattern.test(content));
-  }, []);
-
-  // Auto-detect MyST syntax and switch to Raw mode when needed
-  useEffect(() => {
-    if (editedContent && hasMystSyntax(editedContent) && !useRawEditor) {
-      setUseRawEditor(true);
-    }
-  }, [editedContent, hasMystSyntax, useRawEditor]);
+  // Track original MyST content (before conversion to remark directive format)
+  const [originalMystContent, setOriginalMystContent] = useState<string>('');
 
   // Helper function to update editor content (both state and MDXEditor ref)
+  // Converts MyST syntax to remark-directive format for MDXEditor
   const updateEditorContent = useCallback((content: string) => {
-    setEditedContent(content);
-    // If content has MyST syntax, don't try to update MDXEditor (it will fail)
-    if (hasMystSyntax(content)) {
-      setUseRawEditor(true);
-      return;
-    }
+    // Store original MyST content
+    setOriginalMystContent(content);
+    // Convert MyST syntax to remark-directive format that MDXEditor understands
+    const convertedContent = mystToRemarkDirective(content);
+    setEditedContent(convertedContent);
     // MDXEditor is not fully controlled, so we need to use setMarkdown via ref
     // Use setTimeout to ensure the state update happens first
     setTimeout(() => {
-      editorRef.current?.setMarkdown(content);
+      editorRef.current?.setMarkdown(convertedContent);
     }, 0);
-  }, [hasMystSyntax]);
+  }, []);
+
+  // Helper function to get content in MyST format (for saving)
+  const getContentAsMyst = useCallback((content: string): string => {
+    // Convert remark-directive format back to MyST syntax
+    return remarkDirectiveToMyst(content);
+  }, []);
 
   // Initialize all chapters' features from book-level selections on mount
   useEffect(() => {
@@ -1477,8 +1469,11 @@ ${editedContent}`,
     setSaveDetails(null);
 
     try {
+      // Convert content back to MyST format for saving
+      const mystContent = getContentAsMyst(editedContent);
+
       // Update local state
-      updateChapterContent(selectedChapter.id, editedContent);
+      updateChapterContent(selectedChapter.id, mystContent);
       updateChapterInputMode(selectedChapter.id, editorTab);
 
       // Update on GitHub (also updates myst.yml to sync configuration)
@@ -1491,7 +1486,7 @@ ${editedContent}`,
           repoName: bookConfig.github.repoName,
           chapter: {
             ...selectedChapter,
-            content: editedContent,
+            content: mystContent,
           },
           bookConfig, // Pass full config to sync myst.yml
         }),
@@ -2875,13 +2870,12 @@ ${editedContent}`,
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => setUseRawEditor(false)}
-                                disabled={hasMystSyntax(editedContent)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                                   !useRawEditor
                                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                } ${hasMystSyntax(editedContent) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                title={hasMystSyntax(editedContent) ? 'Rich Editor cannot parse MyST syntax' : 'Switch to Rich Editor'}
+                                }`}
+                                title="Switch to Rich Editor"
                               >
                                 Rich Editor
                               </button>
@@ -2892,15 +2886,10 @@ ${editedContent}`,
                                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                                 }`}
+                                title="Switch to Raw Markdown"
                               >
                                 Raw Markdown
                               </button>
-                              {hasMystSyntax(editedContent) && (
-                                <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                                  <Info className="h-3 w-3" />
-                                  MyST syntax detected
-                                </span>
-                              )}
                             </div>
                             <button
                               onClick={() => setIsContentEditorFullscreen(!isContentEditorFullscreen)}
@@ -3011,13 +3000,12 @@ ${editedContent}`,
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => setUseRawEditor(false)}
-                                disabled={hasMystSyntax(editedContent)}
                                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
                                   !useRawEditor
                                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                } ${hasMystSyntax(editedContent) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                title={hasMystSyntax(editedContent) ? 'Rich Editor cannot parse MyST syntax' : 'Switch to Rich Editor'}
+                                }`}
+                                title="Switch to Rich Editor"
                               >
                                 Rich Editor
                               </button>
@@ -3028,15 +3016,10 @@ ${editedContent}`,
                                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                                     : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                                 }`}
+                                title="Switch to Raw Markdown"
                               >
                                 Raw Markdown
                               </button>
-                              {hasMystSyntax(editedContent) && (
-                                <span className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                                  <Info className="h-3 w-3" />
-                                  MyST syntax detected
-                                </span>
-                              )}
                             </div>
                             <button
                               onClick={() => setIsContentEditorFullscreen(!isContentEditorFullscreen)}

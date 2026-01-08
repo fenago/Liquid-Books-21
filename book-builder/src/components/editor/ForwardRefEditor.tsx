@@ -32,3 +32,10 @@ ForwardRefEditor.displayName = 'ForwardRefEditor';
 
 // Re-export types for convenience
 export type { MDXEditorMethods };
+
+// Re-export MyST conversion utilities
+export {
+  mystToRemarkDirective,
+  remarkDirectiveToMyst,
+  containsMystSyntax
+} from './MystDirectives';

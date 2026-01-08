@@ -18,6 +18,7 @@ import {
   codeMirrorPlugin,
   toolbarPlugin,
   diffSourcePlugin,
+  directivesPlugin,
   BoldItalicUnderlineToggles,
   BlockTypeSelect,
   CreateLink,
@@ -30,6 +31,7 @@ import {
   Separator,
 } from '@mdxeditor/editor';
 import '@mdxeditor/editor/style.css';
+import { mystDirectiveDescriptors } from './MystDirectives';
 
 interface ChapterEditorProps extends Omit<MDXEditorProps, 'plugins'> {
   editorRef: ForwardedRef<MDXEditorMethods> | null;
@@ -81,6 +83,10 @@ export default function ChapterEditor({
           },
         }),
         imagePlugin({ imageUploadHandler }),
+        // MyST directive support for admonitions, cards, tabs, etc.
+        directivesPlugin({
+          directiveDescriptors: mystDirectiveDescriptors,
+        }),
         diffSourcePlugin({ viewMode: 'rich-text' }),
         toolbarPlugin({
           toolbarContents: () => (

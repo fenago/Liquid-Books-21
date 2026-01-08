@@ -468,6 +468,7 @@ ${generateTocYaml(bookConfig.tableOfContents.chapters, 4)}
 site:
   template: book-theme
   title: "${bookConfig.title}"
+${bookConfig.github ? `  base: /${bookConfig.github.repoName}` : ''}
   logo:
     text: "${bookConfig.title}"
   nav:

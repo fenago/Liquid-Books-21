@@ -2895,6 +2895,9 @@ ${editedContent}`,
                             <p className="text-blue-600 dark:text-blue-400 text-xs mt-1">
                               Your live book will update in 1-2 minutes once the build completes.
                             </p>
+                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-2 italic">
+                              Tip: Clear your browser cache to see changes (DevTools → Application → Storage → Clear site data)
+                            </p>
                           </div>
                         ) : (
                           <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-2">
@@ -2917,6 +2920,9 @@ ${editedContent}`,
                             </div>
                             <p className="text-yellow-600 dark:text-yellow-400 text-xs mt-1">
                               The build may start shortly. Your book will update in 1-2 minutes.
+                            </p>
+                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-2 italic">
+                              Tip: Clear your browser cache to see changes (DevTools → Application → Storage → Clear site data)
                             </p>
                           </div>
                         )}
@@ -2948,10 +2954,15 @@ ${editedContent}`,
                     </div>
                   )}
                   {saveStatus === 'saved' && (
-                    <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
-                      <Check className="h-4 w-4" />
-                      Saved to GitHub
-                    </span>
+                    <div className="text-green-600 dark:text-green-400">
+                      <div className="flex items-center gap-1">
+                        <Check className="h-4 w-4" />
+                        Saved to GitHub
+                      </div>
+                      <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 italic">
+                        Tip: Clear your browser cache to see changes (DevTools → Application → Storage → Clear site data)
+                      </p>
+                    </div>
                   )}
                   {saveStatus === 'error' && (
                     <div className="text-red-600 dark:text-red-400">

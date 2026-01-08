@@ -1,18 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Octokit } from '@octokit/rest';
-import { Chapter } from '@/types';
+import { Chapter, BookConfig } from '@/types';
+import { generateMystConfig } from '@/lib/myst-config';
 
 interface UpdateChapterRequest {
   token?: string;
   username: string;
   repoName: string;
   chapter: Chapter;
+  bookConfig?: BookConfig; // Optional: if provided, also update myst.yml
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: UpdateChapterRequest = await request.json();
-    const { token: providedToken, username, repoName, chapter } = body;
+    const { token: providedToken, username, repoName, chapter, bookConfig } = body;
 
     // Use provided token or fall back to environment variable
     const token = providedToken || process.env.GITHUB_PAT;
@@ -59,8 +61,47 @@ export async function POST(request: NextRequest) {
       sha,
     });
 
-    const commitSha = updateResponse.data.commit.sha;
+    let commitSha = updateResponse.data.commit.sha;
     const fileSha = updateResponse.data.content?.sha;
+
+    // Also update myst.yml if bookConfig is provided
+    // This ensures site configuration (logo, base URL, etc.) stays in sync
+    if (bookConfig) {
+      try {
+        const mystContent = generateMystConfig(bookConfig);
+
+        // Get current myst.yml SHA
+        let mystSha: string | undefined;
+        try {
+          const { data: mystFile } = await octokit.repos.getContent({
+            owner: username,
+            repo: repoName,
+            path: 'myst.yml',
+          });
+          if ('sha' in mystFile) {
+            mystSha = mystFile.sha;
+          }
+        } catch {
+          // myst.yml doesn't exist, will create new
+        }
+
+        const mystResponse = await octokit.repos.createOrUpdateFileContents({
+          owner: username,
+          repo: repoName,
+          path: 'myst.yml',
+          message: `Update myst.yml configuration`,
+          content: Buffer.from(mystContent).toString('base64'),
+          sha: mystSha,
+        });
+
+        // Use the myst.yml commit SHA as the final commit
+        commitSha = mystResponse.data.commit.sha;
+        console.log('Updated myst.yml with latest configuration');
+      } catch (mystError) {
+        console.error('Failed to update myst.yml:', mystError);
+        // Continue even if myst.yml update fails
+      }
+    }
 
     // Verify the file was actually pushed by fetching it back
     let verified = false;

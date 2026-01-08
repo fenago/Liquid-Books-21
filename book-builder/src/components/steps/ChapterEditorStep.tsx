@@ -1412,7 +1412,7 @@ ${editedContent}`,
       updateChapterContent(selectedChapter.id, editedContent);
       updateChapterInputMode(selectedChapter.id, editorTab);
 
-      // Update on GitHub
+      // Update on GitHub (also updates myst.yml to sync configuration)
       const response = await fetch('/api/github/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1424,6 +1424,7 @@ ${editedContent}`,
             ...selectedChapter,
             content: editedContent,
           },
+          bookConfig, // Pass full config to sync myst.yml
         }),
       });
 

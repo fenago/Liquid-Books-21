@@ -1,8 +1,8 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js';
-import { getSupabaseClient } from './client';
+import { getSupabaseClient, isSupabaseConfigured } from './client';
 import { LQ21Profile } from './types';
 
 interface AuthContextType {
@@ -24,38 +24,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<LQ21Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const initRef = useRef(false);
 
-  const supabase = getSupabaseClient();
+  // Only get Supabase client if configured
+  const supabase = isSupabaseConfigured() ? getSupabaseClient() : null;
 
   // Fetch user profile from LQ21_profiles
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('lq21_profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+    if (!supabase) return null;
 
-    if (error) {
-      console.error('Error fetching profile:', error);
+    try {
+      const { data, error } = await supabase
+        .from('lq21_profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
+      }
+      // Return null if no profile exists (user hasn't created one yet)
+      return data as LQ21Profile | null;
+    } catch (err) {
+      console.error('Failed to fetch profile:', err);
       return null;
     }
-    // Return null if no profile exists (user hasn't created one yet)
-    return data as LQ21Profile | null;
   };
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }: { data: { session: Session | null } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Prevent double initialization in React StrictMode
+    if (initRef.current) return;
+    initRef.current = true;
 
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        setProfile(profile);
-      }
-
+    // If Supabase isn't configured, stop loading immediately
+    if (!supabase) {
+      console.warn('Supabase not configured - auth disabled');
       setLoading(false);
-    });
+      return;
+    }
+
+    const initAuth = async () => {
+      try {
+        // Get initial session with 5 second timeout
+        const { data: { session } } = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Auth timeout')), 5000)
+          ),
+        ]);
+
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          setProfile(profile);
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+        // Continue without auth on error
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -75,9 +109,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   const signIn = async (email: string, password: string) => {
+    if (!supabase) return { error: new Error('Auth not configured') };
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -86,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, displayName?: string) => {
+    if (!supabase) return { error: new Error('Auth not configured') };
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -99,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    if (!supabase) return;
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
@@ -106,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGitHub = async () => {
+    if (!supabase) return { error: new Error('Auth not configured') };
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'github',
       options: {
@@ -117,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
+    if (!supabase) return { error: new Error('Auth not configured') };
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {

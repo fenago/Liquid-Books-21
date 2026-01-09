@@ -165,18 +165,42 @@ async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
 
     const data = await response.json();
 
-    // Return ALL models - no filtering
-    const allModels = data.models
+    // Filter to only models that support generateContent
+    const generationModels = data.models
+      .filter((model: { name: string; supportedGenerationMethods?: string[] }) => {
+        // Only include models that support generateContent
+        const supportsGeneration = model.supportedGenerationMethods?.includes('generateContent');
+        // Only include gemini models (not embedding, aqa, etc.)
+        const isGeminiModel = model.name.includes('gemini');
+        return supportsGeneration && isGeminiModel;
+      })
       .map((model: { name: string; displayName: string }) => ({
         id: model.name.replace('models/', ''),
         name: model.displayName || model.name.replace('models/', ''),
         provider: 'gemini' as AIProvider,
-      }));
+      }))
+      .sort((a: AIModel, b: AIModel) => {
+        // Sort by version (2.0 > 1.5 > 1.0) and then pro > flash
+        const aVersion = extractGeminiVersion(a.id);
+        const bVersion = extractGeminiVersion(b.id);
+        if (bVersion !== aVersion) return bVersion - aVersion;
+        // Pro before Flash
+        if (a.id.includes('pro') && !b.id.includes('pro')) return -1;
+        if (!a.id.includes('pro') && b.id.includes('pro')) return 1;
+        return a.id.localeCompare(b.id);
+      });
 
-    return allModels;
+    return generationModels;
   } catch (error) {
     throw new Error(`Gemini API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+}
+
+function extractGeminiVersion(modelId: string): number {
+  if (modelId.includes('2.0') || modelId.includes('2-')) return 2.0;
+  if (modelId.includes('1.5') || modelId.includes('1-5')) return 1.5;
+  if (modelId.includes('1.0') || modelId.includes('1-0')) return 1.0;
+  return 0;
 }
 
 function formatModelName(modelId: string): string {

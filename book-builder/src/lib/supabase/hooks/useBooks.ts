@@ -94,6 +94,80 @@ export function useBooks() {
     return true;
   };
 
+  const duplicateBook = async (id: string, newTitle?: string): Promise<LQ21Book | null> => {
+    if (!user) return null;
+
+    // Get the original book with chapters
+    const { data: original, error: fetchError } = await supabase
+      .from('lq21_books')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !original) {
+      setError(fetchError?.message || 'Book not found');
+      return null;
+    }
+
+    // Get chapters
+    const { data: chapters } = await supabase
+      .from('lq21_chapters')
+      .select('*')
+      .eq('book_id', id)
+      .order('sort_order', { ascending: true });
+
+    // Create new book
+    const newSlug = `${original.slug}-copy-${Date.now()}`;
+    const { data: newBook, error: createError } = await supabase
+      .from('lq21_books')
+      .insert({
+        owner_id: user.id,
+        title: newTitle || `${original.title} (Copy)`,
+        slug: newSlug,
+        description: original.description,
+        author: original.author,
+        config: original.config,
+        book_features: original.book_features,
+        status: 'draft',
+      })
+      .select()
+      .single();
+
+    if (createError) {
+      setError(createError.message);
+      return null;
+    }
+
+    // Copy chapters
+    if (chapters && chapters.length > 0) {
+      const chapterInserts = chapters.map((ch: LQ21Chapter) => ({
+        book_id: newBook.id,
+        title: ch.title,
+        slug: ch.slug,
+        description: ch.description,
+        content: ch.content,
+        sort_order: ch.sort_order,
+        chapter_features: ch.chapter_features,
+      }));
+
+      await supabase.from('lq21_chapters').insert(chapterInserts);
+    }
+
+    await fetchBooks();
+    return newBook;
+  };
+
+  const archiveBook = async (id: string): Promise<boolean> => {
+    return updateBook(id, { status: 'archived' });
+  };
+
+  const publishBook = async (id: string): Promise<boolean> => {
+    return updateBook(id, {
+      status: 'published',
+      published_at: new Date().toISOString(),
+    });
+  };
+
   return {
     books,
     loading,
@@ -102,6 +176,13 @@ export function useBooks() {
     createBook,
     updateBook,
     deleteBook,
+    duplicateBook,
+    archiveBook,
+    publishBook,
+    // Computed
+    draftBooks: books.filter(b => b.status === 'draft'),
+    publishedBooks: books.filter(b => b.status === 'published'),
+    archivedBooks: books.filter(b => b.status === 'archived'),
   };
 }
 

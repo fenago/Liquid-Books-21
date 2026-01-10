@@ -22,6 +22,7 @@ const Editor = dynamic(() => import('./ChapterEditor'), {
 
 export interface ForwardRefEditorProps extends Omit<MDXEditorProps, 'plugins'> {
   onImageUpload?: (file: File) => Promise<string>;
+  onError?: (payload: { error: string; source: string }) => void;
 }
 
 export const ForwardRefEditor = forwardRef<MDXEditorMethods, ForwardRefEditorProps>(

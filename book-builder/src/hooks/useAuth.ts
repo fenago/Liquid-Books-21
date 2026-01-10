@@ -40,17 +40,33 @@ export function useAuth() {
       return;
     }
 
-    // Get initial session
+    // Get initial session with timeout to prevent infinite loading
     const getInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setSession(session);
-      setUser(session?.user ?? null);
+      try {
+        // Race between actual session fetch and 5s timeout
+        const result = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<{ data: { session: null } }>((resolve) =>
+            setTimeout(() => {
+              console.warn('useAuth: Session check timed out after 5s');
+              resolve({ data: { session: null } });
+            }, 5000)
+          ),
+        ]);
 
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id);
-        setProfile(profile);
+        const session = result.data.session;
+        setSession(session);
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          setProfile(profile);
+        }
+      } catch (error) {
+        console.error('useAuth: Error getting session:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     getInitialSession();

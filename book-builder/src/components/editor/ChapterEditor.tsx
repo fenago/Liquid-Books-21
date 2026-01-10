@@ -36,11 +36,13 @@ import { mystDirectiveDescriptors } from './MystDirectives';
 interface ChapterEditorProps extends Omit<MDXEditorProps, 'plugins'> {
   editorRef: ForwardedRef<MDXEditorMethods> | null;
   onImageUpload?: (file: File) => Promise<string>;
+  onError?: (payload: { error: string; source: string }) => void;
 }
 
 export default function ChapterEditor({
   editorRef,
   onImageUpload,
+  onError,
   ...props
 }: ChapterEditorProps) {
   // Default image upload handler that returns a placeholder
@@ -51,8 +53,19 @@ export default function ChapterEditor({
 
   const imageUploadHandler = onImageUpload || defaultImageUpload;
 
+  // Default error handler logs to console
+  const handleError = (payload: { error: string; source: string }) => {
+    console.error('[MDXEditor] Parsing error:', payload.error);
+    console.error('[MDXEditor] Source causing error:', payload.source.substring(0, 500));
+    onError?.(payload);
+  };
+
   return (
     <MDXEditor
+      onError={handleError}
+      // Suppress HTML processing to avoid errors from angle brackets in content
+      // This prevents MDXEditor from trying to parse <tag> as JSX
+      suppressHtmlProcessing={true}
       plugins={[
         headingsPlugin(),
         listsPlugin(),

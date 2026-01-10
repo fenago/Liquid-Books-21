@@ -284,6 +284,14 @@ export function ChapterEditorStep() {
   const [isEditorExpanded, setIsEditorExpanded] = useState(false);
   const [isContentEditorFullscreen, setIsContentEditorFullscreen] = useState(false);
   const [useRawEditor, setUseRawEditor] = useState(false); // Fallback to textarea when MDXEditor fails
+  const [editorParseError, setEditorParseError] = useState<string | null>(null);
+
+  // Handle MDXEditor parsing errors by switching to raw mode
+  const handleEditorError = useCallback((payload: { error: string; source: string }) => {
+    console.warn('Rich Editor parsing failed, switching to Raw mode:', payload.error);
+    setEditorParseError(payload.error);
+    setUseRawEditor(true);
+  }, []);
 
   // Build status polling
   const [buildStatus, setBuildStatus] = useState<'idle' | 'polling' | 'building' | 'success' | 'failed'>('idle');
@@ -1040,14 +1048,16 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
 
                 if (data.chunk) {
                   accumulatedContent += data.chunk;
-                  setEditedContent(accumulatedContent);
+                  // Convert MyST syntax to remark-directive format for MDXEditor
+                  setEditedContent(mystToRemarkDirective(accumulatedContent));
                 }
 
                 if (data.done && data.content) {
                   console.log('Stream complete, content length:', data.content.length);
                   receivedComplete = true;
                   accumulatedContent = data.content;
-                  setEditedContent(accumulatedContent);
+                  // Convert MyST syntax to remark-directive format for MDXEditor
+                  setEditedContent(mystToRemarkDirective(accumulatedContent));
 
                   // Capture metadata from generation
                   if (data.metadata) {
@@ -1275,7 +1285,8 @@ Continue from this exact point (do not include the text above - just continue fr
                 if (data.chunk) {
                   accumulatedContinuation += data.chunk;
                   // Update content in real-time (existing + continuation)
-                  setEditedContent(existingContent + accumulatedContinuation);
+                  // Note: existingContent is already converted, continuation needs conversion
+                  setEditedContent(existingContent + mystToRemarkDirective(accumulatedContinuation));
                 }
 
                 if (data.done && data.content) {
@@ -2920,7 +2931,22 @@ ${editedContent}`,
                                 markdown={editedContent}
                                 onChange={setEditedContent}
                                 onImageUpload={uploadImage}
+                                onError={handleEditorError}
                               />
+                            )}
+                            {editorParseError && useRawEditor && (
+                              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-sm text-amber-700 dark:text-amber-300">
+                                <strong>Note:</strong> Rich Editor couldn&apos;t parse the content. Using Raw Markdown mode.
+                                <button
+                                  onClick={() => {
+                                    setEditorParseError(null);
+                                    setUseRawEditor(false);
+                                  }}
+                                  className="ml-2 underline hover:no-underline"
+                                >
+                                  Try Rich Editor again
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -3050,7 +3076,22 @@ ${editedContent}`,
                                 markdown={editedContent}
                                 onChange={setEditedContent}
                                 onImageUpload={uploadImage}
+                                onError={handleEditorError}
                               />
+                            )}
+                            {editorParseError && useRawEditor && (
+                              <div className="mt-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-sm text-amber-700 dark:text-amber-300">
+                                <strong>Note:</strong> Rich Editor couldn&apos;t parse the content. Using Raw Markdown mode.
+                                <button
+                                  onClick={() => {
+                                    setEditorParseError(null);
+                                    setUseRawEditor(false);
+                                  }}
+                                  className="ml-2 underline hover:no-underline"
+                                >
+                                  Try Rich Editor again
+                                </button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -3126,9 +3167,17 @@ ${editedContent}`,
                             <p className="text-blue-600 dark:text-blue-400 text-xs mt-1">
                               Your live book will update in 1-2 minutes once the build completes.
                             </p>
-                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-2 italic">
-                              Tip: Clear your browser cache to see changes (DevTools → Application → Storage → Clear site data)
-                            </p>
+                            {bookConfig.github && (
+                              <a
+                                href={`https://${bookConfig.github.username}.github.io/${bookConfig.github.repoName}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md transition-colors"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                View Live Book
+                              </a>
+                            )}
                           </div>
                         ) : (
                           <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-lg p-2">
@@ -3152,9 +3201,17 @@ ${editedContent}`,
                             <p className="text-yellow-600 dark:text-yellow-400 text-xs mt-1">
                               The build may start shortly. Your book will update in 1-2 minutes.
                             </p>
-                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-2 italic">
-                              Tip: Clear your browser cache to see changes (DevTools → Application → Storage → Clear site data)
-                            </p>
+                            {bookConfig.github && (
+                              <a
+                                href={`https://${bookConfig.github.username}.github.io/${bookConfig.github.repoName}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md transition-colors"
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                                View Live Book
+                              </a>
+                            )}
                           </div>
                         )}
                       </div>
@@ -3182,6 +3239,17 @@ ${editedContent}`,
                           Please verify manually on GitHub
                         </span>
                       </div>
+                      {bookConfig.github && (
+                        <a
+                          href={`https://${bookConfig.github.username}.github.io/${bookConfig.github.repoName}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md transition-colors"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          View Live Book
+                        </a>
+                      )}
                     </div>
                   )}
                   {saveStatus === 'saved' && (
@@ -3190,9 +3258,20 @@ ${editedContent}`,
                         <Check className="h-4 w-4" />
                         Saved to GitHub
                       </div>
-                      <p className="text-gray-500 dark:text-gray-400 text-xs mt-1 italic">
-                        Tip: Clear your browser cache to see changes (DevTools → Application → Storage → Clear site data)
+                      <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                        Your book will update in 1-2 minutes.
                       </p>
+                      {bookConfig.github && (
+                        <a
+                          href={`https://${bookConfig.github.username}.github.io/${bookConfig.github.repoName}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-md transition-colors"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          View Live Book
+                        </a>
+                      )}
                     </div>
                   )}
                   {saveStatus === 'error' && (

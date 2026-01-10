@@ -67,13 +67,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const initAuth = async () => {
       try {
         // Get initial session with 5 second timeout
-        const { data: { session } } = await Promise.race([
+        // Timeout resolves with null session instead of rejecting to avoid error overlays
+        const result = await Promise.race([
           supabase.auth.getSession(),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Auth timeout')), 5000)
+          new Promise<{ data: { session: null } }>((resolve) =>
+            setTimeout(() => {
+              console.warn('Auth session check timed out after 5s - continuing without auth');
+              resolve({ data: { session: null } });
+            }, 5000)
           ),
         ]);
 
+        const session = result.data.session;
         setSession(session);
         setUser(session?.user ?? null);
 

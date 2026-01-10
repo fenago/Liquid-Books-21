@@ -12,9 +12,13 @@ import {
   Rocket,
   Edit,
   CheckCircle,
+  Library,
+  Settings,
 } from 'lucide-react';
 import { UserMenu } from '@/components/auth/UserMenu';
 import { LoginModal } from '@/components/auth/LoginModal';
+import { useAuth } from '@/hooks/useAuth';
+import Link from 'next/link';
 
 const STEPS: { id: WizardStep; label: string; icon: React.ReactNode }[] = [
   { id: 'ai-setup', label: 'AI Setup', icon: <Key size={20} /> },
@@ -33,6 +37,7 @@ interface WizardContainerProps {
 export function WizardContainer({ children }: WizardContainerProps) {
   const { currentStep, setCurrentStep } = useBookStore();
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const { isAuthenticated } = useAuth();
 
   const currentStepIndex = STEPS.findIndex((s) => s.id === currentStep);
 
@@ -59,6 +64,24 @@ export function WizardContainer({ children }: WizardContainerProps) {
               <p className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">
                 AI-Powered Book Builder
               </p>
+              {isAuthenticated && (
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/library"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <Library className="h-4 w-4" />
+                    <span className="hidden sm:inline">Library</span>
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  >
+                    <Settings className="h-4 w-4" />
+                    <span className="hidden sm:inline">Settings</span>
+                  </Link>
+                </div>
+              )}
               <UserMenu onOpenAuth={() => setShowLoginModal(true)} />
             </div>
           </div>

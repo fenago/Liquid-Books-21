@@ -1,11 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useBookStore } from '@/store/useBookStore';
 import { AIProvider, AIModel } from '@/types';
-import { Key, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, ArrowRight } from 'lucide-react';
+import { Key, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, ArrowRight, Sparkles, Settings } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
+import { useApiKeys } from '@/lib/supabase/hooks/useApiKeys';
+import { useUserSettings } from '@/lib/supabase/hooks/useUserSettings';
+import Link from 'next/link';
 
 const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    description: 'Google\'s multimodal AI models',
+  },
   {
     id: 'claude',
     name: 'Claude (Anthropic)',
@@ -15,11 +24,6 @@ const PROVIDERS: { id: AIProvider; name: string; description: string }[] = [
     id: 'openai',
     name: 'OpenAI (GPT)',
     description: 'GPT-4 and GPT-3.5 models',
-  },
-  {
-    id: 'gemini',
-    name: 'Google Gemini',
-    description: 'Google\'s multimodal AI models',
   },
 ];
 
@@ -33,15 +37,89 @@ export function AISetupStep() {
     setCurrentStep,
   } = useBookStore();
 
+  // Auth and saved settings hooks
+  const { isAuthenticated } = useAuth();
+  const { apiKeys, loading: keysLoading, getApiKey } = useApiKeys();
+  const { settings, loading: settingsLoading, defaultProvider, defaultModel } = useUserSettings();
+
   const [showKey, setShowKey] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isValidated, setIsValidated] = useState(false);
+  const [usingSavedSettings, setUsingSavedSettings] = useState(false);
+  const [loadingSavedKey, setLoadingSavedKey] = useState(false);
+
+  // Check if user has saved API key for the default provider
+  const hasSavedKeyForDefaultProvider = apiKeys.some(
+    k => k.provider === defaultProvider && k.hasKey && k.isValid
+  );
+  const hasSavedSettings = isAuthenticated && hasSavedKeyForDefaultProvider && settings;
+
+  // Auto-load saved settings if user is authenticated and has saved keys
+  useEffect(() => {
+    if (hasSavedSettings && !aiConfig.apiKey && !usingSavedSettings) {
+      // Don't auto-load, let user click the button
+    }
+  }, [hasSavedSettings, aiConfig.apiKey, usingSavedSettings]);
+
+  const handleUseSavedSettings = async () => {
+    if (!hasSavedSettings) return;
+
+    setLoadingSavedKey(true);
+    setError(null);
+
+    try {
+      // Get the saved API key for the default provider
+      const savedKey = await getApiKey(defaultProvider as 'claude' | 'openai' | 'gemini');
+
+      if (!savedKey) {
+        throw new Error('Could not retrieve saved API key');
+      }
+
+      // Set the provider, API key
+      setAIProvider(defaultProvider as AIProvider);
+      setAIApiKey(savedKey);
+      setUsingSavedSettings(true);
+
+      // Now validate the key and fetch models
+      const response = await fetch('/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: defaultProvider,
+          apiKey: savedKey,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to validate API key');
+      }
+
+      setAvailableModels(data.models);
+      setIsValidated(true);
+
+      // Try to select the default model, or first available
+      const modelExists = data.models.some((m: AIModel) => m.id === defaultModel);
+      if (modelExists) {
+        setSelectedModel(defaultModel);
+      } else if (data.models.length > 0) {
+        setSelectedModel(data.models[0].id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load saved settings');
+      setUsingSavedSettings(false);
+    } finally {
+      setLoadingSavedKey(false);
+    }
+  };
 
   const handleProviderSelect = (provider: AIProvider) => {
     setAIProvider(provider);
     setError(null);
     setIsValidated(false);
+    setUsingSavedSettings(false);
   };
 
   const handleValidateKey = async () => {
@@ -92,6 +170,12 @@ export function AISetupStep() {
 
   const canContinue = isValidated && aiConfig.selectedModel;
 
+  // Get provider name for display
+  const getProviderName = (providerId: string) => {
+    const provider = PROVIDERS.find(p => p.id === providerId);
+    return provider?.name || providerId;
+  };
+
   return (
     <div className="space-y-8">
       <div>
@@ -102,6 +186,71 @@ export function AISetupStep() {
           Connect your AI provider to generate book content and table of contents.
         </p>
       </div>
+
+      {/* Use Saved Settings Banner */}
+      {hasSavedSettings && !usingSavedSettings && !isValidated && (
+        <div className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/30 rounded-xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-purple-500/20 rounded-lg">
+              <Sparkles className="h-6 w-6 text-purple-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
+                Use Your Saved Settings
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                You have saved API keys and preferences. Use your default settings to get started quickly.
+              </p>
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  onClick={handleUseSavedSettings}
+                  disabled={loadingSavedKey}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-600/50 text-white rounded-lg font-medium transition-colors"
+                >
+                  {loadingSavedKey ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="h-4 w-4" />
+                      Use {getProviderName(defaultProvider)} ({defaultModel.split('-').slice(0, 2).join(' ')})
+                    </>
+                  )}
+                </button>
+                <span className="text-sm text-gray-500 dark:text-gray-400">
+                  or configure manually below
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Already using saved settings indicator */}
+      {usingSavedSettings && isValidated && (
+        <div className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+          <CheckCircle className="h-5 w-5 text-green-500" />
+          <span className="text-green-700 dark:text-green-400 font-medium">
+            Using saved settings: {getProviderName(aiConfig.provider || '')} with {aiConfig.selectedModel}
+          </span>
+        </div>
+      )}
+
+      {/* No saved settings - prompt to save */}
+      {isAuthenticated && !hasSavedSettings && !keysLoading && !settingsLoading && (
+        <div className="flex items-center gap-3 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+          <Settings className="h-5 w-5 text-blue-400" />
+          <span className="text-gray-600 dark:text-gray-400">
+            Save your API keys in{' '}
+            <Link href="/settings" className="text-blue-500 hover:text-blue-400 font-medium">
+              Settings
+            </Link>{' '}
+            to skip this step next time.
+          </span>
+        </div>
+      )}
 
       {/* Provider Selection */}
       <div className="space-y-4">

@@ -174,15 +174,12 @@ Critical information
 :::
 \`\`\`
 
-9. **Figures** - DO NOT generate fake image paths! If content mentions a figure/diagram/image:
-   - If there's an EXISTING image URL in the content, wrap it properly
-   - If NO image exists, use a descriptive card instead:
-\`\`\`
-::::{card} Figure 1.1: Dashboard Analytics
-A dashboard showing player tracking data and shot efficiency charts would display real-time metrics, heat maps, and performance trends.
-::::
-\`\`\`
-   - NEVER create fake paths like "images/dashboard.png" - they will show as broken images!
+9. **NO IMAGES** - Do NOT generate any image references, figures, or placeholders:
+   - Do NOT use :::{figure} directives
+   - Do NOT use ![alt](path) markdown images
+   - Do NOT create any image paths or URLs
+   - If the source content mentions a figure/diagram, just describe it in text or skip it
+   - Images will be added separately in a later process
 
 10. **Math blocks** - MUST have curly braces:
 \`\`\`
@@ -338,8 +335,8 @@ Return the COMPLETE formatted chapter:`;
       // Fix common MyST syntax errors (missing curly braces)
       formattedContent = fixMystSyntax(formattedContent);
 
-      // Fix broken/fake image references
-      formattedContent = fixBrokenImages(formattedContent);
+      // Strip all image references (images added separately later)
+      formattedContent = stripAllImages(formattedContent);
 
       // Validate the output - pass selectedFeatures to check ALL are used
       validationResult = validateFormattedOutput(
@@ -457,7 +454,7 @@ function checkFeatureCategoryUsed(category: string, featureCounts: Record<string
               featureCounts.danger + featureCounts.caution + featureCounts.important +
               featureCounts.seealso) > 0;
     case 'figures':
-      return featureCounts.figure > 0;
+      return true; // Images added separately - skip validation
     case 'math':
       return featureCounts.math > 0;
     case 'cards':
@@ -557,31 +554,41 @@ function fixMystSyntax(content: string): string {
   return fixed;
 }
 
-// Fix broken/fake image references - convert to descriptive cards
-function fixBrokenImages(content: string): string {
+// Strip ALL image references - images will be added in a separate process
+function stripAllImages(content: string): string {
   let fixed = content;
   let fixCount = 0;
 
-  // Pattern 1: MyST figure with fake local path
-  // :::{figure} images/something.png or :::{figure} path/to/image.jpg
-  const figurePattern = /:::{figure}\s+(?!https?:\/\/)[^\n]+\n(?::[\w-]+:[^\n]*\n)*\n?([^:]*?):::/gi;
-  fixed = fixed.replace(figurePattern, (match, caption) => {
-    fixCount++;
-    const cleanCaption = caption.trim() || 'Figure description';
-    return `::::{card} 📊 ${cleanCaption}\n*[Image placeholder - actual image to be added]*\n::::`;
-  });
+  // Pattern 1: MyST figure blocks (any path)
+  // :::{figure} ... ::: or ::::{figure} ... ::::
+  const figurePattern = /:{3,}{figure}[^\n]*\n(?::[^\n]*\n)*[^:]*?:{3,}\n?/gi;
+  const figureMatches = fixed.match(figurePattern);
+  if (figureMatches) fixCount += figureMatches.length;
+  fixed = fixed.replace(figurePattern, '');
 
-  // Pattern 2: Markdown image with fake local path (not http/https)
-  // ![alt text](images/something.png) or ![alt](path/to/image.jpg)
-  const mdImagePattern = /!\[([^\]]*)\]\((?!https?:\/\/)([^)]+)\)/gi;
-  fixed = fixed.replace(mdImagePattern, (match, alt, path) => {
-    fixCount++;
-    const description = alt || path.split('/').pop()?.replace(/\.[^.]+$/, '') || 'Image';
-    return `*[${description}]*`;
-  });
+  // Pattern 2: Markdown images ![alt](path)
+  const mdImagePattern = /!\[[^\]]*\]\([^)]+\)\n?/gi;
+  const mdMatches = fixed.match(mdImagePattern);
+  if (mdMatches) fixCount += mdMatches.length;
+  fixed = fixed.replace(mdImagePattern, '');
+
+  // Pattern 3: HTML img tags
+  const htmlImgPattern = /<img[^>]*>\n?/gi;
+  const htmlMatches = fixed.match(htmlImgPattern);
+  if (htmlMatches) fixCount += htmlMatches.length;
+  fixed = fixed.replace(htmlImgPattern, '');
+
+  // Clean up any leftover "Figure X.X:" captions without images
+  const orphanCaptionPattern = /^Figure\s+\d+\.\d+:.*$/gim;
+  const captionMatches = fixed.match(orphanCaptionPattern);
+  if (captionMatches) fixCount += captionMatches.length;
+  fixed = fixed.replace(orphanCaptionPattern, '');
+
+  // Clean up multiple blank lines left behind
+  fixed = fixed.replace(/\n{3,}/g, '\n\n');
 
   if (fixCount > 0) {
-    console.log(`[IMAGE FIX] Converted ${fixCount} fake image reference(s) to placeholders`);
+    console.log(`[IMAGE STRIP] Removed ${fixCount} image reference(s)`);
   }
 
   return fixed;

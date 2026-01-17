@@ -66,8 +66,8 @@ export default function LibraryPage() {
   });
 
   const handleEdit = (bookId: string) => {
-    // Navigate to book editor (you may want to update this to your actual editor route)
-    router.push(`/?bookId=${bookId}`);
+    // Navigate to library book detail page with chapter editor
+    router.push(`/library/${bookId}`);
   };
 
   const handleDuplicate = async (bookId: string) => {

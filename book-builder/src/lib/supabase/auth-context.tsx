@@ -64,47 +64,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const initAuth = async () => {
-      try {
-        // Get initial session with 5 second timeout
-        // Timeout resolves with null session instead of rejecting to avoid error overlays
-        const result = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise<{ data: { session: null } }>((resolve) =>
-            setTimeout(() => {
-              console.warn('Auth session check timed out after 5s - continuing without auth');
-              resolve({ data: { session: null } });
-            }, 5000)
-          ),
-        ]);
-
-        const session = result.data.session;
-        setSession(session);
-        setUser(session?.user ?? null);
-
-        if (session?.user) {
-          const profile = await fetchProfile(session.user.id);
-          setProfile(profile);
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-        // Continue without auth on error
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initAuth();
-
-    // Listen for auth changes
+    // Listen for auth changes FIRST - this will catch OAuth redirects
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event: AuthChangeEvent, session: Session | null) => {
+      async (event: AuthChangeEvent, session: Session | null) => {
+        console.log('Auth state changed:', event, session?.user?.email);
         setSession(session);
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          const profile = await fetchProfile(session.user.id);
-          setProfile(profile);
+          fetchProfile(session.user.id).then(setProfile);
         } else {
           setProfile(null);
         }
@@ -112,6 +80,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
       }
     );
+
+    const initAuth = async () => {
+      try {
+        // Get session with a 3 second timeout
+        const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
+          setTimeout(() => {
+            console.warn('Auth: getSession timed out, relying on onAuthStateChange');
+            resolve({ data: { session: null } });
+          }, 3000)
+        );
+
+        const result = await Promise.race([
+          supabase.auth.getSession(),
+          timeoutPromise,
+        ]);
+
+        const session = result.data.session;
+        if (session) {
+          setSession(session);
+          setUser(session.user);
+          fetchProfile(session.user.id).then(setProfile);
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initAuth();
 
     return () => subscription.unsubscribe();
   }, [supabase]);

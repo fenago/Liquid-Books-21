@@ -14,6 +14,7 @@ interface GenerateRequest {
   model: string;
   prompt: string;
   type: 'toc' | 'chapter' | 'content';
+  maxTokens?: number;
   context?: {
     bookTitle?: string;
     bookDescription?: string;
@@ -21,13 +22,14 @@ interface GenerateRequest {
     previousContent?: string;
     systemPromptOverride?: string;
     targetWordCount?: number;
+    inputWordCount?: number;
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body: GenerateRequest = await request.json();
-    const { provider, apiKey: providedApiKey, model, prompt, type, context } = body;
+    const { provider, apiKey: providedApiKey, model, prompt, type, context, maxTokens: requestedMaxTokens } = body;
 
     // Use provided API key or fall back to environment variable
     let apiKey = providedApiKey;
@@ -53,17 +55,17 @@ export async function POST(request: NextRequest) {
 
     // Use streaming for Claude to avoid Netlify timeout
     if (provider === 'claude') {
-      return streamWithClaude(apiKey, model, systemPrompt, prompt, type);
+      return streamWithClaude(apiKey, model, systemPrompt, prompt, type, requestedMaxTokens);
     }
 
     // Non-streaming for other providers (can add streaming later if needed)
     let content: string;
     switch (provider) {
       case 'openai':
-        content = await generateWithOpenAI(apiKey, model, systemPrompt, prompt, type);
+        content = await generateWithOpenAI(apiKey, model, systemPrompt, prompt, type, requestedMaxTokens);
         break;
       case 'gemini':
-        content = await generateWithGemini(apiKey, model, systemPrompt, prompt, type);
+        content = await generateWithGemini(apiKey, model, systemPrompt, prompt, type, requestedMaxTokens);
         break;
       default:
         return NextResponse.json(
@@ -179,11 +181,13 @@ function streamWithClaude(
   model: string,
   systemPrompt: string,
   userPrompt: string,
-  type: 'toc' | 'chapter' | 'content'
+  type: 'toc' | 'chapter' | 'content',
+  requestedMaxTokens?: number
 ): Response {
   // Claude models support large context windows (200K)
-  // Use generous output limits for comprehensive chapter content
-  const maxTokens = type === 'toc' ? 4096 : 64000;
+  // Use requested max tokens if provided, otherwise use defaults
+  // For chapters, default to 64000 which is very generous
+  const maxTokens = requestedMaxTokens || (type === 'toc' ? 4096 : 64000);
 
   console.log(`[CLAUDE DEBUG] ========================================`);
   console.log(`[CLAUDE DEBUG] STARTING GENERATION`);
@@ -377,11 +381,12 @@ async function generateWithOpenAI(
   model: string,
   systemPrompt: string,
   userPrompt: string,
-  type: 'toc' | 'chapter' | 'content'
+  type: 'toc' | 'chapter' | 'content',
+  requestedMaxTokens?: number
 ): Promise<string> {
   // GPT-4o supports up to 16K output, GPT-4 Turbo up to 4K
-  // Use generous limits to avoid truncation
-  const maxTokens = type === 'toc' ? 16384 : 8192;
+  // Use requested max tokens if provided, otherwise use generous defaults
+  const maxTokens = requestedMaxTokens || (type === 'toc' ? 16384 : 16384);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -414,11 +419,12 @@ async function generateWithGemini(
   model: string,
   systemPrompt: string,
   userPrompt: string,
-  type: 'toc' | 'chapter' | 'content'
+  type: 'toc' | 'chapter' | 'content',
+  requestedMaxTokens?: number
 ): Promise<string> {
-  // Gemini models support generous output limits
-  // Use high values to avoid truncation
-  const maxTokens = type === 'toc' ? 32768 : 8192;
+  // Gemini models support generous output limits (up to 65K for some models)
+  // Use requested max tokens if provided, otherwise use high defaults to avoid truncation
+  const maxTokens = requestedMaxTokens || (type === 'toc' ? 32768 : 65536);
 
   // Strip models/ prefix if present (it shouldn't be, but just in case)
   const modelId = model.replace(/^models\//, '');

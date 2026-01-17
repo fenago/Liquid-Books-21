@@ -9,6 +9,12 @@ interface CreateRepoRequest {
   bookConfig: BookConfig;
 }
 
+interface GeneratedFile {
+  path: string;
+  content: string;
+  encoding?: 'utf-8' | 'base64';
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: CreateRepoRequest = await request.json();
@@ -76,17 +82,41 @@ export async function POST(request: NextRequest) {
       });
       const baseCommitSha = ref.object.sha;
 
+      // Create blobs for base64-encoded files (images) and prepare tree entries
+      const treeEntries: { path: string; mode: '100644'; type: 'blob'; sha?: string; content?: string }[] = [];
+
+      for (const file of files) {
+        if (file.encoding === 'base64') {
+          // Create a blob for binary content
+          const { data: blob } = await octokit.git.createBlob({
+            owner: user.login,
+            repo: repoName,
+            content: file.content,
+            encoding: 'base64',
+          });
+          treeEntries.push({
+            path: file.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            sha: blob.sha,
+          });
+        } else {
+          // Text content can be added directly
+          treeEntries.push({
+            path: file.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            content: file.content,
+          });
+        }
+      }
+
       // Create a new tree with all files (replaces entire content)
       // Using base_tree: undefined creates a completely new tree (clean slate)
       const { data: tree } = await octokit.git.createTree({
         owner: user.login,
         repo: repoName,
-        tree: files.map((file) => ({
-          path: file.path,
-          mode: '100644' as const,
-          type: 'blob' as const,
-          content: file.content,
-        })),
+        tree: treeEntries,
       });
 
       // Create a commit with parent
@@ -156,17 +186,41 @@ export async function POST(request: NextRequest) {
       });
       const baseTreeSha = baseCommit.tree.sha;
 
+      // Create blobs for base64-encoded files (images) and prepare tree entries
+      const treeEntries: { path: string; mode: '100644'; type: 'blob'; sha?: string; content?: string }[] = [];
+
+      for (const file of files) {
+        if (file.encoding === 'base64') {
+          // Create a blob for binary content
+          const { data: blob } = await octokit.git.createBlob({
+            owner: user.login,
+            repo: repoName,
+            content: file.content,
+            encoding: 'base64',
+          });
+          treeEntries.push({
+            path: file.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            sha: blob.sha,
+          });
+        } else {
+          // Text content can be added directly
+          treeEntries.push({
+            path: file.path,
+            mode: '100644' as const,
+            type: 'blob' as const,
+            content: file.content,
+          });
+        }
+      }
+
       // Create all files in a single commit using Git Data API
       const { data: tree } = await octokit.git.createTree({
         owner: user.login,
         repo: repoName,
         base_tree: baseTreeSha,
-        tree: files.map((file) => ({
-          path: file.path,
-          mode: '100644' as const,
-          type: 'blob' as const,
-          content: file.content,
-        })),
+        tree: treeEntries,
       });
 
       // Create a commit with parent
@@ -278,19 +332,60 @@ export async function POST(request: NextRequest) {
   }
 }
 
-function generateBookFiles(bookConfig: BookConfig): { path: string; content: string }[] {
-  const files: { path: string; content: string }[] = [];
+function generateBookFiles(bookConfig: BookConfig): GeneratedFile[] {
+  const files: GeneratedFile[] = [];
 
-  // Generate myst.yml configuration
+  // Process cover image - extract base64 and create actual image file
+  let coverImagePath: string | null = null;
+  if (bookConfig.coverImage && bookConfig.coverImage.startsWith('data:')) {
+    // Extract mime type and base64 data from data URL
+    const match = bookConfig.coverImage.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      const mimeType = match[1];
+      const base64Data = match[2];
+
+      // Determine file extension based on mime type
+      let extension = 'png';
+      if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
+        extension = 'jpg';
+      } else if (mimeType === 'image/gif') {
+        extension = 'gif';
+      } else if (mimeType === 'image/webp') {
+        extension = 'webp';
+      }
+
+      coverImagePath = `images/cover.${extension}`;
+
+      // Add the image file with base64 encoding
+      files.push({
+        path: coverImagePath,
+        content: base64Data,
+        encoding: 'base64',
+      });
+
+      console.log(`Cover image extracted: ${mimeType} -> ${coverImagePath}`);
+    }
+  } else if (bookConfig.coverImage) {
+    // It's already a URL, use it directly
+    coverImagePath = bookConfig.coverImage;
+  }
+
+  // Create a modified bookConfig with the new cover image path for file generation
+  const modifiedBookConfig = {
+    ...bookConfig,
+    coverImage: coverImagePath ? `./${coverImagePath}` : undefined,
+  };
+
+  // Generate myst.yml configuration (with relative cover path)
   files.push({
     path: 'myst.yml',
-    content: generateMystConfig(bookConfig),
+    content: generateMystConfig(modifiedBookConfig),
   });
 
   // Generate index.md (root page)
   files.push({
     path: 'index.md',
-    content: generateIndexPage(bookConfig),
+    content: generateIndexPage(modifiedBookConfig),
   });
 
   // Generate chapter files
@@ -591,8 +686,8 @@ function generateChapterFiles(
   chapters: Chapter[],
   prefix = '',
   isTopLevel = true
-): { path: string; content: string }[] {
-  const files: { path: string; content: string }[] = [];
+): GeneratedFile[] {
+  const files: GeneratedFile[] = [];
 
   for (let i = 0; i < chapters.length; i++) {
     const chapter = chapters[i];

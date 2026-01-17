@@ -48,6 +48,7 @@ export default function LibraryPage() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [coverPreview, setCoverPreview] = useState<{ url: string; title: string } | null>(null);
 
   // Filter books based on search and status
   const filteredBooks = books.filter(book => {
@@ -287,8 +288,17 @@ export default function LibraryPage() {
                   className="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden hover:border-purple-500/50 transition-all group"
                 >
                   {/* Cover/Preview */}
-                  <div className="h-40 bg-gradient-to-br from-purple-900/50 to-blue-900/50 flex items-center justify-center relative">
-                    <BookOpen className="h-16 w-16 text-purple-400/50" />
+                  <div className="h-40 bg-gradient-to-br from-purple-900/50 to-blue-900/50 flex items-center justify-center relative overflow-hidden">
+                    {book.cover_image_url ? (
+                      <img
+                        src={book.cover_image_url}
+                        alt={`${book.title} cover`}
+                        className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform"
+                        onClick={() => setCoverPreview({ url: book.cover_image_url!, title: book.title })}
+                      />
+                    ) : (
+                      <BookOpen className="h-16 w-16 text-purple-400/50" />
+                    )}
                     <div className="absolute top-3 right-3">
                       <div className="relative">
                         <button
@@ -406,8 +416,19 @@ export default function LibraryPage() {
                   key={book.id}
                   className="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4 hover:border-purple-500/50 transition-all flex items-center gap-4"
                 >
-                  <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-purple-900/50 to-blue-900/50 flex items-center justify-center flex-shrink-0">
-                    <BookOpen className="h-6 w-6 text-purple-400/50" />
+                  <div
+                    className={`h-12 w-12 rounded-lg bg-gradient-to-br from-purple-900/50 to-blue-900/50 flex items-center justify-center flex-shrink-0 overflow-hidden ${book.cover_image_url ? 'cursor-pointer hover:ring-2 hover:ring-purple-500' : ''}`}
+                    onClick={() => book.cover_image_url && setCoverPreview({ url: book.cover_image_url, title: book.title })}
+                  >
+                    {book.cover_image_url ? (
+                      <img
+                        src={book.cover_image_url}
+                        alt={`${book.title} cover`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <BookOpen className="h-6 w-6 text-purple-400/50" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -493,6 +514,34 @@ export default function LibraryPage() {
         {/* Click outside to close menu */}
         {activeMenu && (
           <div className="fixed inset-0 z-10" onClick={() => setActiveMenu(null)} />
+        )}
+
+        {/* Cover Preview Modal */}
+        {coverPreview && (
+          <div
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4 cursor-pointer"
+            onClick={() => setCoverPreview(null)}
+          >
+            <div
+              className="relative max-w-4xl max-h-[90vh] flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={coverPreview.url}
+                alt={`${coverPreview.title} cover`}
+                className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
+              />
+              <p className="mt-4 text-white text-lg font-medium">{coverPreview.title}</p>
+              <button
+                onClick={() => setCoverPreview(null)}
+                className="absolute -top-2 -right-2 p-2 bg-gray-800 hover:bg-gray-700 text-white rounded-full transition-colors"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </AuthGate>

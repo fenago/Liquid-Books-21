@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useBookStore } from '@/store/useBookStore';
+import { useBooks } from '@/hooks/useBooks';
 import {
   ArrowLeft,
   Rocket,
@@ -45,7 +46,9 @@ interface DeploymentInfo {
 
 export function GenerateBookStep() {
   const { bookConfig, setCurrentStep } = useBookStore();
+  const { saveBookConfig } = useBooks();
   const [status, setStatus] = useState<GenerationStatus>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerationResult | null>(null);
   const [currentTask, setCurrentTask] = useState('');
   const [deploymentStatus, setDeploymentStatus] = useState<DeploymentStatus>('pending');
@@ -173,6 +176,7 @@ export function GenerateBookStep() {
     { id: 'chapters', label: 'Creating chapter files', icon: FileText },
     { id: 'workflow', label: 'Setting up GitHub Actions', icon: Workflow },
     { id: 'pages', label: 'Enabling GitHub Pages', icon: Globe },
+    { id: 'save', label: 'Saving book to library', icon: FileText },
   ];
 
   const handleGenerate = async () => {
@@ -219,6 +223,19 @@ export function GenerateBookStep() {
           return;
         }
         throw new Error(data.error || 'Failed to create repository');
+      }
+
+      // Save book to database (library)
+      await taskDelay('save', 500);
+      try {
+        const savedBook = await saveBookConfig(bookConfig);
+        if (!savedBook) {
+          console.warn('Book was not saved to library - user may not be authenticated');
+          setSaveError('Book created on GitHub but not saved to library. Sign in to save books.');
+        }
+      } catch (saveErr) {
+        console.error('Error saving book to library:', saveErr);
+        setSaveError('Book created on GitHub but failed to save to library.');
       }
 
       setStatus('success');
@@ -412,6 +429,21 @@ export function GenerateBookStep() {
               Book Created Successfully!
             </h3>
           </div>
+
+          {/* Library save warning */}
+          {saveError && (
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 flex items-start gap-2">
+              <XCircle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-medium text-yellow-800 dark:text-yellow-300">
+                  {saveError}
+                </p>
+                <p className="text-xs text-yellow-700 dark:text-yellow-400 mt-1">
+                  Your book is available on GitHub, but you&apos;ll need to sign in to access it from your library.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-3">
             <a

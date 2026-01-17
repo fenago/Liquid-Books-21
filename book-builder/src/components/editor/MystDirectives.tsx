@@ -527,6 +527,54 @@ function addDefaultLanguageToCodeBlocks(content: string): string {
 }
 
 /**
+ * Clean up AI-generated content by removing problematic patterns
+ * that break MyST rendering
+ */
+function cleanupAIGeneratedContent(content: string): string {
+  if (!content) return content;
+
+  let result = content;
+
+  // Remove standalone --- lines (thematic breaks that confuse MyST)
+  // But preserve --- inside code blocks
+  const lines = result.split('\n');
+  let inCodeBlock = false;
+  const cleanedLines = lines.filter((line, index) => {
+    // Track code block state
+    if (line.trim().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+    }
+
+    // If we're in a code block, keep everything
+    if (inCodeBlock) return true;
+
+    // Remove standalone --- lines (but not at very start if it's frontmatter)
+    if (line.trim() === '---') {
+      // Check if this might be frontmatter (at start of file)
+      if (index === 0) return false; // Remove --- at start
+      // Check if next few lines look like frontmatter
+      const nextLine = lines[index + 1];
+      if (nextLine && /^[a-z_]+:/i.test(nextLine.trim())) {
+        return false; // This is frontmatter delimiter, remove it
+      }
+      return false; // Remove all other --- lines
+    }
+
+    return true;
+  });
+
+  result = cleanedLines.join('\n');
+
+  // Ensure headings have blank lines before them
+  result = result.replace(/([^\n])\n(#{1,6}\s)/g, '$1\n\n$2');
+
+  // Ensure headings have blank lines after them
+  result = result.replace(/(#{1,6}\s[^\n]+)\n([^\n#])/g, '$1\n\n$2');
+
+  return result;
+}
+
+/**
  * Convert MyST syntax to standard remark-directive syntax before loading into MDXEditor.
  * MyST uses :::{name} while remark-directive uses :::name
  */
@@ -535,7 +583,10 @@ export function mystToRemarkDirective(content: string): string {
 
   let result = content;
 
-  // First, add default language to code blocks without one
+  // First, clean up AI-generated content issues
+  result = cleanupAIGeneratedContent(result);
+
+  // Add default language to code blocks without one
   // This prevents MDXEditor from failing with "type":"code","name":"N/A"
   result = addDefaultLanguageToCodeBlocks(result);
 

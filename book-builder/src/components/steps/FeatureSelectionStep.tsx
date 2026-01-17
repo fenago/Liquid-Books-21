@@ -62,7 +62,7 @@ const BOOK_CATEGORY_ICONS: Record<BookLevelFeatureCategory, React.ReactNode> = {
 type TabType = 'chapter' | 'book';
 
 export function FeatureSelectionStep() {
-  const { bookConfig, toggleFeature, toggleBookFeature, setCurrentStep } = useBookStore();
+  const { bookConfig, toggleFeature, toggleBookFeature, setCurrentStep, syncChapterFeatures } = useBookStore();
   const [activeTab, setActiveTab] = useState<TabType>('book');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['front-matter', 'back-matter', 'export', 'navigation', 'content', 'interactive']));
 
@@ -105,6 +105,8 @@ export function FeatureSelectionStep() {
   };
 
   const handleContinue = () => {
+    // Sync enabled chapter features to all chapters before proceeding
+    syncChapterFeatures();
     setCurrentStep('github-setup');
   };
 

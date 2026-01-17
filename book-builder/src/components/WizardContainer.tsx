@@ -14,11 +14,13 @@ import {
   CheckCircle,
   Library,
   Settings,
+  Home,
 } from 'lucide-react';
 import { UserMenu } from '@/components/auth/UserMenu';
 import { LoginModal } from '@/components/auth/LoginModal';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
+import Image from 'next/image';
 
 const STEPS: { id: WizardStep; label: string; icon: React.ReactNode }[] = [
   { id: 'ai-setup', label: 'AI Setup', icon: <Key size={20} /> },
@@ -35,11 +37,12 @@ interface WizardContainerProps {
 }
 
 export function WizardContainer({ children }: WizardContainerProps) {
-  const { currentStep, setCurrentStep } = useBookStore();
+  const { currentStep, setCurrentStep, bookConfig } = useBookStore();
   const [showLoginModal, setShowLoginModal] = useState(false);
   const { isAuthenticated } = useAuth();
 
   const currentStepIndex = STEPS.findIndex((s) => s.id === currentStep);
+  const hasCover = !!bookConfig.coverImage;
 
   const canNavigateTo = (stepIndex: number): boolean => {
     // Can always go back
@@ -54,11 +57,36 @@ export function WizardContainer({ children }: WizardContainerProps) {
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <BookOpen className="h-8 w-8 text-blue-600 dark:text-blue-400" />
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                Liquid Books
-              </h1>
+            <div className="flex items-center gap-4">
+              {/* Book Cover - clickable to go home */}
+              {hasCover ? (
+                <button
+                  onClick={() => setCurrentStep('ai-setup')}
+                  className="relative flex-shrink-0 w-12 h-16 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow group"
+                  title="Go to start"
+                >
+                  <img
+                    src={bookConfig.coverImage}
+                    alt={bookConfig.title || 'Book cover'}
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <Home className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                </button>
+              ) : (
+                <BookOpen className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              )}
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {bookConfig.title || 'Liquid Books'}
+                </h1>
+                {bookConfig.title && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    by {bookConfig.author || 'Unknown Author'}
+                  </p>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-4">
               <p className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">

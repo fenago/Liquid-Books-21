@@ -47,8 +47,17 @@ import {
   Maximize2,
   Minimize2,
 } from 'lucide-react';
+import {
+  smartFormat,
+  FormatResult,
+  countWords,
+  parseContent,
+  hasMystFormatting,
+  stripFormatting,
+  type AISuggestion,
+} from '@/lib/formatters';
 
-type EditorTab = 'ai-generate' | 'manual-write';
+type EditorTab = 'ai-generate' | 'format-content' | 'manual-write';
 type ModalType = 'none' | 'features' | 'book-features' | 'system-prompt' | 'add-chapter' | 'analytics' | 'cover-image';
 
 interface ChapterRowProps {
@@ -231,6 +240,7 @@ export function ChapterEditorStep() {
     getProviderConfig,
     setBookCoverImage,
     toggleBookFeature,
+    syncChapterFeatures,
   } = useBookStore();
 
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
@@ -267,11 +277,60 @@ export function ChapterEditorStep() {
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [addChapterParentId, setAddChapterParentId] = useState<string | null>(null);
   const [tempCoverImageUrl, setTempCoverImageUrl] = useState('');
+
+  // Cover generation states
+  const [coverPrompt, setCoverPrompt] = useState('');
+  const [coverModel, setCoverModel] = useState<'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview'>('gemini-2.5-flash-image');
+  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const [coverGenerationError, setCoverGenerationError] = useState<string | null>(null);
+  const [showCoverSystemPrompt, setShowCoverSystemPrompt] = useState(false);
+  const defaultCoverSystemPrompt = `Create a professional book cover image.
+
+Book Details:
+- Title: "{title}"
+- Author: "{author}"
+
+Style requirements:
+- Professional, modern book cover design
+- Clean, visually striking composition
+- Include the book title "{title}" prominently at the top or center
+- Include the author name "{author}" on the cover (typically near the bottom)
+- High quality, suitable for publishing
+- Appropriate for the book's subject matter
+- Typography should be elegant and readable
+
+Cover concept: {prompt}
+
+Create a complete book cover with both the title and author name integrated into the design.`;
+  const [coverSystemPrompt, setCoverSystemPrompt] = useState(defaultCoverSystemPrompt);
+
+  // Format result state for rule-based formatter
+  const [formatResult, setFormatResult] = useState<FormatResult | null>(null);
+
+  // Format model override - allows selecting model directly in Format My Content tab
+  const [formatModelOverride, setFormatModelOverride] = useState<string>('');
+
+  // Format progress state
+  const [formatStatus, setFormatStatus] = useState<string>('');
+  const [formatElapsed, setFormatElapsed] = useState<number>(0);
+  const formatStartTimeRef = useRef<number | null>(null);
+
+  // Available models for format content (Gemini models with output token limits)
+  const FORMAT_MODELS = [
+    { id: '', name: 'Use Default (from Settings)', provider: 'gemini' },
+    { id: 'gemini-3-pro-preview', name: 'Gemini 3.0 Pro (64K output) - Recommended', provider: 'gemini' },
+    { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash', provider: 'gemini' },
+    { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash', provider: 'gemini' },
+    { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', provider: 'gemini' },
+  ];
+
   const [generationMetadata, setGenerationMetadata] = useState<{
     stopReason?: string;
     inputTokens?: number;
     outputTokens?: number;
     wordCount?: number;
+    characterCount?: number;
+    model?: string;
   } | null>(null);
   const [featureAudit, setFeatureAudit] = useState<{
     selectedFeatures: string[];
@@ -285,6 +344,7 @@ export function ChapterEditorStep() {
   const [isContentEditorFullscreen, setIsContentEditorFullscreen] = useState(false);
   const [useRawEditor, setUseRawEditor] = useState(false); // Fallback to textarea when MDXEditor fails
   const [editorParseError, setEditorParseError] = useState<string | null>(null);
+  const [userRawContent, setUserRawContent] = useState(''); // User's content to format with features
 
   // Handle MDXEditor parsing errors by switching to raw mode
   const handleEditorError = useCallback((payload: { error: string; source: string }) => {
@@ -1183,6 +1243,260 @@ IMPORTANT: Write the COMPLETE chapter covering ALL topics in the title. Do NOT s
     }
   };
 
+  // Format user's content with MyST features using AI suggestions + rule-based transformation
+  // AI suggests WHERE to add formatting, rules APPLY it (no truncation)
+  const formatUserContent = async () => {
+    if (!selectedChapter) {
+      alert('Please select a chapter first');
+      return;
+    }
+
+    if (!userRawContent.trim()) {
+      alert('Please enter some content to format');
+      return;
+    }
+
+    setIsGenerating(true);
+    setEditedContent('');
+    setFormatResult(null);
+    setGenerationMetadata(null);
+    setFeatureAudit(null);
+    setFormatStatus('Preparing content...');
+    setFormatElapsed(0);
+
+    // Start elapsed time tracking
+    formatStartTimeRef.current = Date.now();
+    const elapsedInterval = setInterval(() => {
+      if (formatStartTimeRef.current) {
+        setFormatElapsed(Math.floor((Date.now() - formatStartTimeRef.current) / 1000));
+      }
+    }, 1000);
+
+    try {
+      // Get selected features from chapter, or sync from book if none
+      let selectedFeatures = selectedChapter.selectedFeatures || [];
+
+      // Auto-sync features if chapter has none but book has features enabled
+      if (selectedFeatures.length === 0) {
+        const enabledBookFeatures = bookConfig.features.filter(f => f.enabled).map(f => f.id);
+        if (enabledBookFeatures.length > 0) {
+          syncChapterFeatures();
+          selectedFeatures = enabledBookFeatures;
+        } else {
+          clearInterval(elapsedInterval);
+          alert('No features enabled! Please enable features in the Feature Selection step.');
+          setIsGenerating(false);
+          setFormatStatus('');
+          return;
+        }
+      }
+
+      // Clean content if it has existing MyST formatting
+      const contentToFormat = hasMystFormatting(userRawContent)
+        ? stripFormatting(userRawContent)
+        : userRawContent;
+
+      const inputWordCount = countWords(contentToFormat);
+
+      // Determine provider and model
+      const chapterProvider = selectedChapter.selectedProvider || aiConfig.provider;
+      let provider: 'gemini' | 'claude' | 'openai' | null = null;
+      let apiKey = '';
+      let model = '';
+
+      if (chapterProvider) {
+        const provConfig = getProviderConfig(chapterProvider);
+        if (provConfig?.apiKey) {
+          provider = chapterProvider as 'gemini' | 'claude' | 'openai';
+          apiKey = provConfig.apiKey;
+          model = selectedChapter.selectedModel || aiConfig.selectedModel || provConfig.selectedModel || '';
+        }
+      }
+
+      // Fallback: try any configured provider
+      if (!provider || !apiKey) {
+        const geminiConfig = getProviderConfig('gemini');
+        const claudeConfig = getProviderConfig('claude');
+        const openaiConfig = getProviderConfig('openai');
+
+        if (geminiConfig?.apiKey) {
+          provider = 'gemini';
+          apiKey = geminiConfig.apiKey;
+          model = model || geminiConfig.selectedModel || 'gemini-2.5-pro';
+        } else if (claudeConfig?.apiKey) {
+          provider = 'claude';
+          apiKey = claudeConfig.apiKey;
+          model = model || claudeConfig.selectedModel || 'claude-opus-4-5-20250514';
+        } else if (openaiConfig?.apiKey) {
+          provider = 'openai';
+          apiKey = openaiConfig.apiKey;
+          model = model || openaiConfig.selectedModel || 'gpt-4o';
+        }
+      }
+
+      if (!provider || !apiKey) {
+        clearInterval(elapsedInterval);
+        alert('No API key found. Please configure an AI provider in Settings.');
+        setIsGenerating(false);
+        setFormatStatus('');
+        return;
+      }
+
+      // Ensure we have a model (use provider defaults if still empty)
+      if (!model) {
+        if (provider === 'gemini') model = 'gemini-2.5-pro';
+        else if (provider === 'claude') model = 'claude-opus-4-5-20250514';
+        else if (provider === 'openai') model = 'gpt-4o';
+      }
+
+      // OVERRIDE: If formatModelOverride is set, use it (and force Gemini provider)
+      if (formatModelOverride) {
+        model = formatModelOverride;
+        const geminiConfig = getProviderConfig('gemini');
+        if (geminiConfig?.apiKey) {
+          provider = 'gemini';
+          apiKey = geminiConfig.apiKey;
+        }
+      }
+
+      // Get friendly model name for display
+      const modelDisplayName = FORMAT_MODELS.find(m => m.id === model)?.name || model;
+      setFormatStatus(`Formatting ${inputWordCount.toLocaleString()} words with ${modelDisplayName}...`);
+      console.log(`[FORMAT] ${inputWordCount} words → ${model} (${selectedFeatures.length} features)`);
+
+      // Call the AI format endpoint
+      const response = await fetch('/api/ai/format-content', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: contentToFormat,
+          chapterTitle: selectedChapter.title,
+          selectedFeatures,
+          provider,
+          apiKey,
+          model,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to format content');
+      }
+
+      const data = await response.json();
+
+      if (!data.success || !data.formattedContent) {
+        throw new Error('No formatted content returned');
+      }
+
+      // Clean, simple result log
+      const preservationPct = Math.round((data.formattedWordCount / data.originalWordCount) * 100);
+      console.log(`[FORMAT] ✓ Complete: ${data.originalWordCount} → ${data.formattedWordCount} words (${preservationPct}%), ${data.featuresApplied} features`);
+
+      setFormatStatus('');
+
+      // Set the formatted content (convert MyST to remark-directive for MDXEditor)
+      setEditedContent(mystToRemarkDirective(data.formattedContent));
+
+      // Create a result object for compatibility with existing UI
+      const wordCountDiff = data.formattedWordCount - data.originalWordCount;
+      const preservationPctExact = (Math.min(data.formattedWordCount, data.originalWordCount) / Math.max(data.formattedWordCount, data.originalWordCount)) * 100;
+      const result: FormatResult = {
+        formattedContent: data.formattedContent,
+        originalWordCount: data.originalWordCount,
+        formattedWordCount: data.formattedWordCount,
+        appliedTransformations: [],
+        suggestions: [],
+        warnings: [],
+        verification: {
+          isPreserved: Math.abs(wordCountDiff) < data.originalWordCount * 0.1,
+          originalWordCount: data.originalWordCount,
+          formattedWordCount: data.formattedWordCount,
+          wordCountDifference: wordCountDiff,
+          preservationPercentage: preservationPctExact,
+          issues: [],
+          originalSentences: 0,
+          formattedSentences: 0,
+          sentencePreservationRate: 100,
+        },
+      };
+      setFormatResult(result);
+
+      // Set metadata
+      setGenerationMetadata({
+        wordCount: data.formattedWordCount,
+        characterCount: data.formattedContent.length,
+      });
+
+      // Audit features in the formatted content
+      if (selectedFeatures.length > 0) {
+        auditFeatures(data.formattedContent, selectedFeatures);
+      }
+
+    } catch (error) {
+      console.error('[FORMAT] Error:', error);
+      setFormatStatus('');
+      alert(error instanceof Error ? error.message : 'Failed to format content');
+    } finally {
+      clearInterval(elapsedInterval);
+      formatStartTimeRef.current = null;
+      setIsGenerating(false);
+    }
+  };
+
+  // Generate book cover with AI
+  const generateCover = async () => {
+    if (!coverPrompt.trim()) {
+      setCoverGenerationError('Please enter a prompt describing your book cover');
+      return;
+    }
+
+    setIsGeneratingCover(true);
+    setCoverGenerationError(null);
+
+    try {
+      // Get the Gemini API key
+      const geminiConfig = getProviderConfig('gemini');
+      const apiKey = geminiConfig?.apiKey || '';
+
+      if (!apiKey) {
+        throw new Error('Please configure your Gemini API key in Settings to generate covers');
+      }
+
+      const response = await fetch('/api/image/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiKey,
+          model: coverModel,
+          prompt: coverPrompt,
+          bookTitle: bookConfig.title,
+          bookAuthor: bookConfig.author,
+          aspectRatio: '3:4', // Standard book cover ratio
+          systemPrompt: coverSystemPrompt,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate cover image');
+      }
+
+      if (data.success && data.image?.dataUrl) {
+        // Set the generated image as the cover
+        setTempCoverImageUrl(data.image.dataUrl);
+      } else {
+        throw new Error('No image was generated');
+      }
+    } catch (error) {
+      console.error('Cover generation error:', error);
+      setCoverGenerationError(error instanceof Error ? error.message : 'Failed to generate cover');
+    } finally {
+      setIsGeneratingCover(false);
+    }
+  };
+
   // Continue generation from truncated content
   const continueFromTruncation = async (
     existingContent: string,
@@ -1485,7 +1799,9 @@ ${editedContent}`,
 
       // Update local state
       updateChapterContent(selectedChapter.id, mystContent);
-      updateChapterInputMode(selectedChapter.id, editorTab);
+      // Map 'format-content' to 'ai-generate' since the result is AI-formatted
+      const savedInputMode = editorTab === 'format-content' ? 'ai-generate' : editorTab;
+      updateChapterInputMode(selectedChapter.id, savedInputMode);
 
       // Update on GitHub (also updates myst.yml to sync configuration)
       const response = await fetch('/api/github/update', {
@@ -2146,7 +2462,7 @@ ${editedContent}`,
 
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Image className="h-5 w-5 text-purple-600" />
@@ -2160,7 +2476,120 @@ ${editedContent}`,
             </button>
           </div>
 
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1">
+            {/* AI Generation Section */}
+            <div className="border border-purple-200 dark:border-purple-800 rounded-lg p-4 bg-purple-50 dark:bg-purple-900/20">
+              <h4 className="font-medium text-purple-900 dark:text-purple-300 mb-3 flex items-center gap-2">
+                <Wand2 className="h-4 w-4" />
+                Generate with AI (Gemini)
+              </h4>
+
+              {/* Model Selection */}
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Model
+                </label>
+                <select
+                  value={coverModel}
+                  onChange={(e) => setCoverModel(e.target.value as typeof coverModel)}
+                  className="w-full p-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                  <option value="gemini-3-pro-image-preview">Gemini 3 Pro Image Preview</option>
+                </select>
+              </div>
+
+              {/* Prompt Input */}
+              <div className="mb-3">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Describe your cover
+                </label>
+                <textarea
+                  value={coverPrompt}
+                  onChange={(e) => setCoverPrompt(e.target.value)}
+                  placeholder="A minimalist cover with abstract geometric shapes in blue and white, representing data flow and analytics..."
+                  className="w-full h-24 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Describe the visual style, colors, and mood. The book title will be included automatically.
+                </p>
+              </div>
+
+              {/* System Prompt Editor */}
+              <div className="mb-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCoverSystemPrompt(!showCoverSystemPrompt)}
+                  className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition-colors"
+                >
+                  <Settings className="h-4 w-4" />
+                  {showCoverSystemPrompt ? 'Hide' : 'Edit'} System Prompt
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showCoverSystemPrompt ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showCoverSystemPrompt && (
+                  <div className="mt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">
+                        System Prompt (use {'{title}'}, {'{author}'}, and {'{prompt}'} as placeholders)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setCoverSystemPrompt(defaultCoverSystemPrompt)}
+                        className="text-xs text-purple-600 dark:text-purple-400 hover:underline"
+                      >
+                        Reset to Default
+                      </button>
+                    </div>
+                    <textarea
+                      value={coverSystemPrompt}
+                      onChange={(e) => setCoverSystemPrompt(e.target.value)}
+                      className="w-full h-48 p-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white text-xs font-mono resize-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Generate Button */}
+              <button
+                onClick={generateCover}
+                disabled={isGeneratingCover || !coverPrompt.trim()}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {isGeneratingCover ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating Cover...
+                  </>
+                ) : tempCoverImageUrl ? (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Regenerate Cover
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Generate Cover
+                  </>
+                )}
+              </button>
+
+              {/* Error Message */}
+              {coverGenerationError && (
+                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-600 dark:text-red-400">
+                  {coverGenerationError}
+                </div>
+              )}
+            </div>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700"></div>
+              <span className="text-sm text-gray-500 dark:text-gray-400">or</span>
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-700"></div>
+            </div>
+
+            {/* URL Input Section */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Cover Image URL
@@ -2622,6 +3051,19 @@ ${editedContent}`,
                   AI Generate
                 </button>
                 <button
+                  onClick={() => setEditorTab('format-content')}
+                  className={`
+                    flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2
+                    ${editorTab === 'format-content'
+                      ? 'text-green-700 dark:text-green-300 border-b-2 border-green-600 bg-green-50 dark:bg-green-900/10'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/50'
+                    }
+                  `}
+                >
+                  <FileText className="h-4 w-4" />
+                  Format My Content
+                </button>
+                <button
                   onClick={() => setEditorTab('manual-write')}
                   className={`
                     flex-1 px-4 py-3 text-sm font-medium flex items-center justify-center gap-2
@@ -2638,7 +3080,8 @@ ${editedContent}`,
 
               {/* Tab Content */}
               <div className="flex-1 overflow-auto p-4">
-                {editorTab === 'ai-generate' ? (
+                {/* AI Generate Tab */}
+                {editorTab === 'ai-generate' && (
                   <div className="space-y-4">
                     {/* Description Input */}
                     <div>
@@ -2957,7 +3400,294 @@ ${editedContent}`,
                       </div>
                     )}
                   </div>
-                ) : (
+                )}
+
+                {/* Format My Content Tab */}
+                {editorTab === 'format-content' && (
+                  <div className="space-y-4">
+                    {/* Info Box */}
+                    <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                      <h4 className="font-medium text-green-800 dark:text-green-300 mb-2 flex items-center gap-2">
+                        <FileText className="h-5 w-5" />
+                        Paste Your Content
+                      </h4>
+                      <p className="text-sm text-green-700 dark:text-green-400">
+                        Paste your raw chapter content below and we&apos;ll transform it into a beautifully formatted
+                        MyST Markdown chapter with your selected features applied.
+                      </p>
+                    </div>
+
+                    {/* Model Selector */}
+                    <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                          <span className="font-medium text-purple-800 dark:text-purple-300 text-sm">
+                            AI Model:
+                          </span>
+                        </div>
+                        <select
+                          value={formatModelOverride}
+                          onChange={(e) => setFormatModelOverride(e.target.value)}
+                          className="flex-1 px-3 py-1.5 rounded-md border border-purple-300 dark:border-purple-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-purple-500"
+                        >
+                          {FORMAT_MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {formatModelOverride === 'gemini-3-pro-preview' && (
+                        <p className="mt-2 text-xs text-purple-600 dark:text-purple-400">
+                          ✨ Gemini 3.0 Pro has 64K output tokens - ideal for long chapters without truncation
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Content Input */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                          Your Chapter Content
+                        </label>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {userRawContent.trim().split(/\s+/).filter(Boolean).length} words
+                        </span>
+                      </div>
+                      <textarea
+                        value={userRawContent}
+                        onChange={(e) => setUserRawContent(e.target.value)}
+                        placeholder="Paste your chapter content here... This can be plain text, rough notes, or any content you want formatted with MyST features."
+                        className="w-full h-64 p-4 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono"
+                      />
+                    </div>
+
+                    {/* Features to Apply */}
+                    {selectedChapter.selectedFeatures && selectedChapter.selectedFeatures.length > 0 && (
+                      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Sparkles className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          <span className="font-medium text-blue-800 dark:text-blue-300 text-sm">
+                            Features that will be applied:
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {selectedChapter.selectedFeatures.map(id => {
+                            const feature = MYST_FEATURES_DATA.find(f => f.id === id);
+                            return feature ? (
+                              <span
+                                key={id}
+                                className="px-2 py-1 text-xs bg-blue-100 dark:bg-blue-800/50 text-blue-700 dark:text-blue-300 rounded-full"
+                              >
+                                {feature.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Format Button */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={formatUserContent}
+                          disabled={isGenerating || !userRawContent.trim()}
+                          className="flex items-center gap-2 px-6 py-3 rounded-lg font-medium bg-gradient-to-r from-green-600 to-teal-600 hover:from-green-700 hover:to-teal-700 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
+                        >
+                          {isGenerating ? (
+                            <>
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                              Formatting...
+                            </>
+                          ) : (
+                            <>
+                              <Wand2 className="h-5 w-5" />
+                              Format with Features
+                            </>
+                          )}
+                        </button>
+                        {!userRawContent.trim() && !isGenerating && (
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            Paste your content above to enable formatting
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Progress Status */}
+                      {isGenerating && formatStatus && (
+                        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <div className="flex items-center gap-3">
+                            <Loader2 className="h-5 w-5 animate-spin text-amber-600 dark:text-amber-400" />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                                {formatStatus}
+                              </p>
+                              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                                Elapsed: {Math.floor(formatElapsed / 60)}:{String(formatElapsed % 60).padStart(2, '0')}
+                                {formatElapsed > 30 && ' — Large chapters may take 1-3 minutes with Pro models'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Formatted Output */}
+                    {(editedContent || isGenerating) && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                            <CheckCircle className="h-4 w-4 text-green-500" />
+                            Formatted Output
+                            {isGenerating && <Loader2 className="h-4 w-4 animate-spin text-green-600" />}
+                          </label>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
+                            {editedContent.trim().split(/\s+/).filter(Boolean).length} words
+                          </span>
+                        </div>
+                        <div className="relative">
+                          <textarea
+                            value={editedContent}
+                            onChange={(e) => setEditedContent(e.target.value)}
+                            className="w-full h-64 p-4 rounded-lg border border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-900/20 text-gray-900 dark:text-white text-sm resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono"
+                            placeholder="Formatted content will appear here..."
+                          />
+                        </div>
+                        {editedContent && !isGenerating && (
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={saveChapter}
+                                disabled={isSaving}
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 transition-colors"
+                              >
+                                {isSaving ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="h-4 w-4" />
+                                    Save to GitHub
+                                  </>
+                                )}
+                              </button>
+                              <span className="text-sm text-green-600 dark:text-green-400">
+                                ✓ Content formatted successfully
+                              </span>
+                            </div>
+
+                            {/* Format Result Details */}
+                            {formatResult && (
+                              <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700 text-sm">
+                                <div className="flex items-center gap-2 mb-2">
+                                  {formatResult.verification.isPreserved ? (
+                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                  ) : (
+                                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                                  )}
+                                  <span className={`font-medium ${formatResult.verification.isPreserved ? 'text-green-700 dark:text-green-400' : 'text-yellow-700 dark:text-yellow-400'}`}>
+                                    {formatResult.verification.isPreserved
+                                      ? '100% Content Preserved'
+                                      : `Content Preservation: ${formatResult.verification.preservationPercentage.toFixed(1)}%`}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                                  <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Original:</span>
+                                    <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
+                                      {formatResult.originalWordCount.toLocaleString()} words
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Formatted:</span>
+                                    <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
+                                      {formatResult.formattedWordCount.toLocaleString()} words
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Transformations:</span>
+                                    <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
+                                      {formatResult.appliedTransformations.length}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <span className="text-gray-500 dark:text-gray-400">Suggestions:</span>
+                                    <span className="ml-1 font-medium text-gray-700 dark:text-gray-300">
+                                      {formatResult.suggestions.length}
+                                    </span>
+                                  </div>
+                                </div>
+                                {formatResult.appliedTransformations.length > 0 && (
+                                  <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">Applied:</span>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                      {formatResult.appliedTransformations.slice(0, 5).map((t, i) => (
+                                        <span
+                                          key={i}
+                                          className="px-2 py-0.5 text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded"
+                                        >
+                                          {t.type}
+                                        </span>
+                                      ))}
+                                      {formatResult.appliedTransformations.length > 5 && (
+                                        <span className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                                          +{formatResult.appliedTransformations.length - 5} more
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Generation Stats */}
+                    {generationMetadata && (
+                      <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
+                        <h4 className="font-medium text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
+                          <BarChart3 className="h-4 w-4" />
+                          Formatting Results
+                        </h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">Word Count:</span>
+                            <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                              {generationMetadata.wordCount?.toLocaleString()}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">Characters:</span>
+                            <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                              {generationMetadata.characterCount?.toLocaleString()}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">Reading Time:</span>
+                            <span className="ml-2 font-medium text-gray-900 dark:text-white">
+                              ~{Math.ceil((generationMetadata.wordCount || 0) / 200)} min
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-gray-500 dark:text-gray-400">Model:</span>
+                            <span className="ml-2 font-medium text-gray-900 dark:text-white text-xs">
+                              {generationMetadata.model}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Manual Write Tab */}
+                {editorTab === 'manual-write' && (
                   <div className="h-full flex flex-col">
                     <div className="flex items-center justify-between mb-2">
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

@@ -165,6 +165,9 @@ async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
 
     const data = await response.json();
 
+    // Log all available models for debugging
+    console.log('[GEMINI MODELS] All models from API:', data.models?.map((m: { name: string }) => m.name));
+
     // Filter to only models that support generateContent
     const generationModels = data.models
       .filter((model: { name: string; supportedGenerationMethods?: string[] }) => {
@@ -180,7 +183,7 @@ async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
         provider: 'gemini' as AIProvider,
       }))
       .sort((a: AIModel, b: AIModel) => {
-        // Sort by version (2.0 > 1.5 > 1.0) and then pro > flash
+        // Sort by version (3.0 > 2.0 > 1.5 > 1.0) and then pro > flash
         const aVersion = extractGeminiVersion(a.id);
         const bVersion = extractGeminiVersion(b.id);
         if (bVersion !== aVersion) return bVersion - aVersion;
@@ -190,6 +193,22 @@ async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
         return a.id.localeCompare(b.id);
       });
 
+    // Add known Gemini 3 Pro models as fallback if not already present
+    const knownGemini3ProModels = [
+      { id: 'gemini-3-pro-preview', name: 'Gemini 3.0 Pro (Preview)', provider: 'gemini' as AIProvider },
+      { id: 'gemini-3.0-pro', name: 'Gemini 3.0 Pro', provider: 'gemini' as AIProvider },
+    ];
+
+    for (const proModel of knownGemini3ProModels) {
+      const exists = generationModels.some((m: AIModel) => m.id === proModel.id);
+      if (!exists) {
+        // Add to the beginning since it's a top-tier model
+        generationModels.unshift(proModel);
+      }
+    }
+
+    console.log('[GEMINI MODELS] Filtered models:', generationModels.map((m: AIModel) => m.id));
+
     return generationModels;
   } catch (error) {
     throw new Error(`Gemini API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -197,7 +216,8 @@ async function getGeminiModels(apiKey: string): Promise<AIModel[]> {
 }
 
 function extractGeminiVersion(modelId: string): number {
-  if (modelId.includes('2.0') || modelId.includes('2-')) return 2.0;
+  if (modelId.includes('3.0') || modelId.includes('3-') || modelId.includes('gemini-3')) return 3.0;
+  if (modelId.includes('2.0') || modelId.includes('2-') || modelId.includes('gemini-2')) return 2.0;
   if (modelId.includes('1.5') || modelId.includes('1-5')) return 1.5;
   if (modelId.includes('1.0') || modelId.includes('1-0')) return 1.0;
   return 0;

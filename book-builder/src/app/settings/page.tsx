@@ -46,7 +46,8 @@ const AI_PROVIDERS = [
 
 const DEFAULT_MODELS: Record<string, { id: string; name: string }[]> = {
   gemini: [
-    { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash (Recommended)' },
+    { id: 'gemini-3-pro-preview', name: 'Gemini 3.0 Pro (64K output)' },
+    { id: 'gemini-3-flash-preview', name: 'Gemini 3.0 Flash' },
     { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash' },
     { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
     { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
@@ -90,7 +91,7 @@ export default function SettingsPage() {
     defaultGitHubUsername,
   } = useUserSettings();
 
-  const { apiKeys, loading: keysLoading, saveApiKey, deleteApiKey } = useApiKeys();
+  const { apiKeys, loading: keysLoading, error: keysError, saveApiKey, deleteApiKey } = useApiKeys();
 
   // Local state for form
   const [selectedProvider, setSelectedProvider] = useState<'openai' | 'claude' | 'gemini'>(defaultProvider || 'gemini');
@@ -106,6 +107,7 @@ export default function SettingsPage() {
   const [savingKey, setSavingKey] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
 
   // Sync local state with fetched settings
   useEffect(() => {
@@ -128,6 +130,24 @@ export default function SettingsPage() {
         editor_mode: selectedEditorMode,
         default_github_username: githubUsername || null,
       });
+
+      // Also save theme to localStorage for immediate effect
+      localStorage.setItem('theme', selectedTheme);
+
+      // Apply theme immediately
+      if (selectedTheme === 'light') {
+        document.documentElement.classList.remove('dark');
+      } else if (selectedTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else if (selectedTheme === 'system') {
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (isDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+      }
+
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (error) {
@@ -142,12 +162,18 @@ export default function SettingsPage() {
 
     try {
       setSavingKey(true);
-      await saveApiKey(provider, keyValue.trim());
-      setEditingKey(null);
-      setKeyValue('');
-      setShowKey(false);
+      setKeyError(null);
+      const success = await saveApiKey(provider, keyValue.trim());
+      if (success) {
+        setEditingKey(null);
+        setKeyValue('');
+        setShowKey(false);
+      } else {
+        setKeyError('Failed to save API key. Please try again.');
+      }
     } catch (error) {
       console.error('Error saving API key:', error);
+      setKeyError('Failed to save API key. Please try again.');
     } finally {
       setSavingKey(false);
     }
@@ -298,6 +324,12 @@ export default function SettingsPage() {
                       </p>
                     </div>
                   </div>
+                  {(keyError || keysError) && (
+                    <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
+                      <span className="text-sm text-red-400">{keyError || keysError}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="divide-y divide-gray-700/50">
                   {/* GitHub */}
@@ -312,11 +344,11 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       </div>
-                      {getKeyForProvider('github') ? (
+                      {getKeyForProvider('github')?.hasKey ? (
                         <div className="flex items-center gap-2">
                           <span className="text-sm text-green-400 flex items-center gap-1">
                             <Check className="h-4 w-4" />
-                            Configured
+                            {getKeyForProvider('github')?.keyHint || 'Configured'}
                           </span>
                           <button
                             onClick={() => handleDeleteKey('github')}
@@ -401,13 +433,11 @@ export default function SettingsPage() {
                               </div>
                             </div>
                           </div>
-                          {existingKey ? (
+                          {existingKey?.hasKey ? (
                             <div className="flex items-center gap-2">
                               <span className="text-sm text-green-400 flex items-center gap-1">
                                 <Check className="h-4 w-4" />
-                                {existingKey.keyHint
-                                  ? `...${existingKey.keyHint}`
-                                  : 'Configured'}
+                                {existingKey.keyHint || 'Configured'}
                               </span>
                               <button
                                 onClick={() => handleDeleteKey(provider.id)}

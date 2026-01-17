@@ -130,6 +130,7 @@ interface BookStore {
   toggleChapterFeature: (chapterId: string, featureId: string) => void;
   updateChapterInputMode: (chapterId: string, mode: ChapterInputMode) => void;
   updateChapterWordCount: (chapterId: string, wordCount: number) => void;
+  syncChapterFeatures: () => void; // Sync all chapters to current enabled features
 
   // GitHub Configuration
   setGitHubConfig: (config: { username: string; repoName: string; token?: string }) => void;
@@ -158,6 +159,26 @@ const initialBookConfig: BookConfig = {
   features: MYST_FEATURES,
   bookFeatures: BOOK_LEVEL_FEATURES,
   tableOfContents: { chapters: [] },
+};
+
+// Helper function to get enabled chapter feature IDs from bookConfig.features
+const getEnabledChapterFeatureIds = (features: MystFeature[]): string[] => {
+  return features.filter((f) => f.enabled).map((f) => f.id);
+};
+
+// Helper function to recursively apply default features to chapters
+const applyDefaultFeaturesToChapters = (
+  chapters: Chapter[],
+  defaultFeatureIds: string[]
+): Chapter[] => {
+  return chapters.map((chapter) => ({
+    ...chapter,
+    // Only set selectedFeatures if not already defined
+    selectedFeatures: chapter.selectedFeatures ?? defaultFeatureIds,
+    children: chapter.children
+      ? applyDefaultFeaturesToChapters(chapter.children, defaultFeatureIds)
+      : undefined,
+  }));
 };
 
 export const useBookStore = create<BookStore>()(
@@ -287,12 +308,18 @@ export const useBookStore = create<BookStore>()(
           bookConfig: { ...state.bookConfig, coverImage },
         })),
       setTableOfContents: (chapters) =>
-        set((state) => ({
-          bookConfig: {
-            ...state.bookConfig,
-            tableOfContents: { chapters },
-          },
-        })),
+        set((state) => {
+          // Get enabled chapter features to use as defaults
+          const defaultFeatureIds = getEnabledChapterFeatureIds(state.bookConfig.features);
+          // Apply default features to all chapters that don't have selectedFeatures set
+          const chaptersWithFeatures = applyDefaultFeaturesToChapters(chapters, defaultFeatureIds);
+          return {
+            bookConfig: {
+              ...state.bookConfig,
+              tableOfContents: { chapters: chaptersWithFeatures },
+            },
+          };
+        }),
       updateChapter: (chapterId, updates) =>
         set((state) => {
           const updateChapterInList = (chapters: Chapter[]): Chapter[] => {
@@ -345,12 +372,20 @@ export const useBookStore = create<BookStore>()(
         }),
       addChapter: (chapter, parentId) =>
         set((state) => {
+          // Get enabled chapter features to use as defaults for new chapter
+          const defaultFeatureIds = getEnabledChapterFeatureIds(state.bookConfig.features);
+          // Apply default features if not already set on the chapter
+          const chapterWithFeatures: Chapter = {
+            ...chapter,
+            selectedFeatures: chapter.selectedFeatures ?? defaultFeatureIds,
+          };
+
           if (!parentId) {
             return {
               bookConfig: {
                 ...state.bookConfig,
                 tableOfContents: {
-                  chapters: [...state.bookConfig.tableOfContents.chapters, chapter],
+                  chapters: [...state.bookConfig.tableOfContents.chapters, chapterWithFeatures],
                 },
               },
             };
@@ -360,7 +395,7 @@ export const useBookStore = create<BookStore>()(
               if (ch.id === parentId) {
                 return {
                   ...ch,
-                  children: [...(ch.children || []), chapter],
+                  children: [...(ch.children || []), chapterWithFeatures],
                 };
               }
               if (ch.children) {
@@ -716,6 +751,29 @@ export const useBookStore = create<BookStore>()(
               ...state.bookConfig,
               tableOfContents: {
                 chapters: updateInList(state.bookConfig.tableOfContents.chapters),
+              },
+            },
+          };
+        }),
+
+      // Sync all chapters to use the current enabled features from bookConfig.features
+      syncChapterFeatures: () =>
+        set((state) => {
+          const defaultFeatureIds = getEnabledChapterFeatureIds(state.bookConfig.features);
+          const syncFeatures = (chapters: Chapter[]): Chapter[] => {
+            return chapters.map((chapter) => ({
+              ...chapter,
+              selectedFeatures: defaultFeatureIds,
+              children: chapter.children
+                ? syncFeatures(chapter.children)
+                : undefined,
+            }));
+          };
+          return {
+            bookConfig: {
+              ...state.bookConfig,
+              tableOfContents: {
+                chapters: syncFeatures(state.bookConfig.tableOfContents.chapters),
               },
             },
           };

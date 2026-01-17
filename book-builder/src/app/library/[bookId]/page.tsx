@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useBook } from '@/lib/supabase/hooks/useBooks';
+import { useBook, useBooks } from '@/lib/supabase/hooks/useBooks';
+import { useAuth } from '@/hooks/useAuth';
 import { AuthGate } from '@/components/auth/AuthGate';
 import { LQ21Chapter } from '@/lib/supabase/types';
+import { RichTextEditor } from '@/components/editor/RichTextEditor';
 import {
   BookOpen,
   ChevronLeft,
@@ -25,10 +27,16 @@ import {
   RotateCcw,
   Sparkles,
   BookMarked,
+  Upload,
+  Github,
+  ExternalLink,
+  CheckCircle,
+  Circle,
+  PenLine,
 } from 'lucide-react';
 import Link from 'next/link';
 
-type ViewMode = 'raw' | 'formatted';
+type ViewMode = 'raw' | 'formatted' | 'rich';
 
 interface ChapterEditorState {
   chapterId: string;
@@ -53,8 +61,10 @@ export default function BookDetailPage() {
   const params = useParams();
   const router = useRouter();
   const bookId = params.bookId as string;
+  const { user } = useAuth();
 
   const { book, loading, error, fetchBook, updateChapter, createChapter, deleteChapter } = useBook(bookId);
+  const { updateBook } = useBooks();
 
   // Editor state for each chapter
   const [editorStates, setEditorStates] = useState<Record<string, ChapterEditorState>>({});
@@ -76,6 +86,21 @@ export default function BookDetailPage() {
   const [showNewChapter, setShowNewChapter] = useState(false);
   const [newChapterTitle, setNewChapterTitle] = useState('');
   const [newChapterDescription, setNewChapterDescription] = useState('');
+
+  // GitHub publish state
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishSuccess, setPublishSuccess] = useState(false);
+
+  // Calculate total words from current editor states (more accurate)
+  const calculateTotalWords = useCallback(() => {
+    if (!book?.chapters) return 0;
+    return book.chapters.reduce((sum, ch) => {
+      const state = editorStates[ch.id];
+      const content = state?.content || ch.content || '';
+      return sum + content.split(/\s+/).filter(Boolean).length;
+    }, 0);
+  }, [book?.chapters, editorStates]);
 
   // Initialize editor states when book loads
   useEffect(() => {
@@ -132,7 +157,7 @@ export default function BookDetailPage() {
     }));
   };
 
-  const saveChapter = async (chapterId: string) => {
+  const saveChapter = async (chapterId: string, newStatus?: 'draft' | 'complete') => {
     const state = editorStates[chapterId];
     if (!state) return;
 
@@ -142,10 +167,16 @@ export default function BookDetailPage() {
     }));
 
     const wordCount = state.content.split(/\s+/).filter(Boolean).length;
-    const success = await updateChapter(chapterId, {
+    const updates: Partial<LQ21Chapter> = {
       content: state.content,
       word_count: wordCount,
-    });
+    };
+
+    if (newStatus) {
+      updates.status = newStatus;
+    }
+
+    const success = await updateChapter(chapterId, updates);
 
     setEditorStates(prev => ({
       ...prev,
@@ -156,6 +187,11 @@ export default function BookDetailPage() {
         originalContent: success ? state.content : prev[chapterId].originalContent,
       },
     }));
+  };
+
+  const toggleChapterStatus = async (chapter: LQ21Chapter) => {
+    const newStatus = chapter.status === 'complete' ? 'draft' : 'complete';
+    await updateChapter(chapter.id, { status: newStatus });
   };
 
   const revertChapter = (chapterId: string) => {
@@ -300,6 +336,87 @@ export default function BookDetailPage() {
     }
   };
 
+  const publishToGitHub = async () => {
+    if (!book) return;
+
+    setIsPublishing(true);
+    setPublishError(null);
+    setPublishSuccess(false);
+
+    try {
+      // Build book config from database
+      const bookConfig = {
+        title: book.title,
+        description: book.description || '',
+        author: book.author || 'Unknown Author',
+        coverImage: book.cover_image_url,
+        github: book.github_repo_name ? {
+          username: book.github_username || '',
+          repoName: book.github_repo_name,
+        } : undefined,
+        features: (book.config as Record<string, unknown>)?.features || [],
+        bookFeatures: book.book_features || [],
+        tableOfContents: {
+          chapters: (book.chapters || []).map((ch, index) => ({
+            id: ch.id,
+            title: ch.title,
+            slug: ch.slug,
+            description: ch.description || undefined,
+            content: editorStates[ch.id]?.content || ch.content || '',
+            order: index + 1,
+          })),
+        },
+      };
+
+      // Get GitHub token from settings (stored in localStorage or user config)
+      const storedConfig = localStorage.getItem('bookBuilderConfig');
+      const config = storedConfig ? JSON.parse(storedConfig) : {};
+      const githubToken = config.github?.token;
+
+      if (!githubToken && !book.github_repo_url) {
+        throw new Error('GitHub token not configured. Please set up GitHub in Settings first.');
+      }
+
+      const response = await fetch('/api/github', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: githubToken,
+          repoName: book.github_repo_name || book.slug,
+          bookConfig,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to publish to GitHub');
+      }
+
+      // Update book with GitHub info
+      await updateBook(book.id, {
+        github_repo_url: result.repoUrl,
+        github_username: result.username,
+        github_repo_name: book.github_repo_name || book.slug,
+        deployed_url: result.deployedUrl,
+        status: 'published',
+      });
+
+      setPublishSuccess(true);
+
+      // Refresh book data
+      await fetchBook();
+
+      // Auto-hide success after 5 seconds
+      setTimeout(() => setPublishSuccess(false), 5000);
+    } catch (err) {
+      console.error('Publish error:', err);
+      setPublishError(err instanceof Error ? err.message : 'Failed to publish');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
   const countWords = (text: string): number => {
     return text.split(/\s+/).filter(Boolean).length;
   };
@@ -382,6 +499,9 @@ export default function BookDetailPage() {
     );
   }
 
+  const totalWords = calculateTotalWords();
+  const completeChapters = book.chapters?.filter(ch => ch.status === 'complete').length || 0;
+
   return (
     <AuthGate>
       <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
@@ -426,10 +546,22 @@ export default function BookDetailPage() {
                 </button>
                 <button
                   onClick={() => setShowTOCGenerator(true)}
-                  className="flex items-center gap-2 px-3 py-2 bg-purple-600/20 hover:bg-purple-600 text-purple-400 hover:text-white rounded-lg transition-colors"
+                  className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg transition-colors"
                 >
                   <ListOrdered className="h-4 w-4" />
                   <span className="hidden sm:inline">Generate TOC</span>
+                </button>
+                <button
+                  onClick={publishToGitHub}
+                  disabled={isPublishing || !book.chapters?.length}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+                >
+                  {isPublishing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4" />
+                  )}
+                  <span className="hidden sm:inline">Publish to GitHub</span>
                 </button>
               </div>
             </div>
@@ -437,6 +569,44 @@ export default function BookDetailPage() {
         </header>
 
         <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Publish Status Messages */}
+          {publishError && (
+            <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-center gap-3">
+              <X className="h-5 w-5 text-red-400 flex-shrink-0" />
+              <div>
+                <p className="text-red-400 font-medium">Publish Failed</p>
+                <p className="text-red-300 text-sm">{publishError}</p>
+              </div>
+              <button
+                onClick={() => setPublishError(null)}
+                className="ml-auto p-1 text-red-400 hover:text-red-300"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {publishSuccess && (
+            <div className="mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded-lg flex items-center gap-3">
+              <CheckCircle className="h-5 w-5 text-green-400 flex-shrink-0" />
+              <div className="flex-1">
+                <p className="text-green-400 font-medium">Published Successfully!</p>
+                <p className="text-green-300 text-sm">Your book has been pushed to GitHub and will be deployed shortly.</p>
+              </div>
+              {book.deployed_url && (
+                <a
+                  href={book.deployed_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  View Site
+                </a>
+              )}
+            </div>
+          )}
+
           {/* Generator Settings Panel */}
           {showGeneratorSettings && (
             <div className="mb-8 bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
@@ -511,22 +681,42 @@ export default function BookDetailPage() {
           )}
 
           {/* Book Stats */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-4 gap-4 mb-8">
             <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
               <div className="text-2xl font-bold text-white">{book.chapters?.length || 0}</div>
               <div className="text-sm text-gray-400">Chapters</div>
             </div>
             <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
               <div className="text-2xl font-bold text-purple-400">
-                {book.chapters?.reduce((sum, ch) => sum + (ch.word_count || 0), 0).toLocaleString()}
+                {totalWords.toLocaleString()}
               </div>
               <div className="text-sm text-gray-400">Total Words</div>
             </div>
             <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
               <div className="text-2xl font-bold text-green-400">
-                {book.chapters?.filter(ch => ch.status === 'complete').length || 0}
+                {completeChapters}
               </div>
               <div className="text-sm text-gray-400">Complete</div>
+            </div>
+            <div className="bg-gray-800/50 rounded-xl p-4 border border-gray-700/50">
+              <div className="flex items-center gap-2">
+                {book.deployed_url ? (
+                  <a
+                    href={book.deployed_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-green-400 hover:text-green-300 flex items-center gap-1"
+                  >
+                    <Github className="h-5 w-5" />
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                ) : (
+                  <Github className="h-5 w-5 text-gray-500" />
+                )}
+              </div>
+              <div className="text-sm text-gray-400">
+                {book.deployed_url ? 'Published' : 'Not Published'}
+              </div>
             </div>
           </div>
 
@@ -625,12 +815,14 @@ export default function BookDetailPage() {
               book.chapters?.map((chapter, index) => {
                 const state = editorStates[chapter.id] || {
                   isOpen: false,
-                  viewMode: 'raw',
+                  viewMode: 'raw' as ViewMode,
                   content: chapter.content || '',
                   isDirty: false,
                   isGenerating: false,
                   isSaving: false,
                 };
+
+                const chapterWordCount = countWords(state.content);
 
                 return (
                   <div
@@ -662,19 +854,29 @@ export default function BookDetailPage() {
                       </div>
                       <div className="flex items-center gap-4">
                         <div className="text-sm text-gray-500">
-                          {chapter.word_count?.toLocaleString() || 0} words
+                          {chapterWordCount.toLocaleString()} words
                         </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleChapterStatus(chapter);
+                          }}
+                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
                             chapter.status === 'complete'
-                              ? 'bg-green-500/20 text-green-400 border-green-500/30'
+                              ? 'bg-green-500/20 text-green-400 border-green-500/30 hover:bg-green-500/30'
                               : chapter.status === 'generating'
                               ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-                              : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                              : 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/30'
                           }`}
+                          title={chapter.status === 'complete' ? 'Click to mark as draft' : 'Click to mark as complete'}
                         >
+                          {chapter.status === 'complete' ? (
+                            <CheckCircle className="h-3 w-3" />
+                          ) : (
+                            <Circle className="h-3 w-3" />
+                          )}
                           {chapter.status}
-                        </span>
+                        </button>
                         {state.isDirty && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400 border border-orange-500/30">
                             unsaved
@@ -687,7 +889,7 @@ export default function BookDetailPage() {
                     {state.isOpen && (
                       <div className="border-t border-gray-700/50">
                         {/* Toolbar */}
-                        <div className="flex items-center justify-between px-4 py-2 bg-gray-900/50">
+                        <div className="flex items-center justify-between px-4 py-2 bg-gray-900/50 flex-wrap gap-2">
                           <div className="flex items-center gap-2">
                             <div className="flex items-center border border-gray-700 rounded-lg overflow-hidden">
                               <button
@@ -695,32 +897,46 @@ export default function BookDetailPage() {
                                   e.stopPropagation();
                                   setViewMode(chapter.id, 'raw');
                                 }}
-                                className={`px-3 py-1.5 text-sm ${
+                                className={`px-3 py-1.5 text-sm flex items-center gap-1 ${
                                   state.viewMode === 'raw'
                                     ? 'bg-purple-600 text-white'
                                     : 'bg-gray-800 text-gray-400 hover:text-white'
                                 }`}
                               >
-                                <Code className="h-4 w-4 inline mr-1" />
+                                <Code className="h-4 w-4" />
                                 Raw
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setViewMode(chapter.id, 'rich');
+                                }}
+                                className={`px-3 py-1.5 text-sm flex items-center gap-1 ${
+                                  state.viewMode === 'rich'
+                                    ? 'bg-purple-600 text-white'
+                                    : 'bg-gray-800 text-gray-400 hover:text-white'
+                                }`}
+                              >
+                                <PenLine className="h-4 w-4" />
+                                Rich
                               </button>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setViewMode(chapter.id, 'formatted');
                                 }}
-                                className={`px-3 py-1.5 text-sm ${
+                                className={`px-3 py-1.5 text-sm flex items-center gap-1 ${
                                   state.viewMode === 'formatted'
                                     ? 'bg-purple-600 text-white'
                                     : 'bg-gray-800 text-gray-400 hover:text-white'
                                 }`}
                               >
-                                <Eye className="h-4 w-4 inline mr-1" />
-                                Formatted
+                                <Eye className="h-4 w-4" />
+                                Preview
                               </button>
                             </div>
                             <span className="text-sm text-gray-500">
-                              {countWords(state.content).toLocaleString()} words
+                              {chapterWordCount.toLocaleString()} words
                             </span>
                           </div>
 
@@ -782,19 +998,23 @@ export default function BookDetailPage() {
                         </div>
 
                         {/* Editor Content */}
-                        <div className="p-4">
+                        <div className="p-4" onClick={(e) => e.stopPropagation()}>
                           {state.viewMode === 'raw' ? (
                             <textarea
                               value={state.content}
                               onChange={(e) => updateContent(chapter.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
                               className="w-full h-96 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-300 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 resize-y"
                               placeholder="Enter chapter content in MyST Markdown..."
+                            />
+                          ) : state.viewMode === 'rich' ? (
+                            <RichTextEditor
+                              content={state.content}
+                              onChange={(content) => updateContent(chapter.id, content)}
+                              placeholder="Start writing your chapter content..."
                             />
                           ) : (
                             <div
                               className="w-full h-96 px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg overflow-y-auto prose-invert"
-                              onClick={(e) => e.stopPropagation()}
                               dangerouslySetInnerHTML={{
                                 __html: renderFormatted(state.content) || '<p class="text-gray-500">No content yet...</p>',
                               }}

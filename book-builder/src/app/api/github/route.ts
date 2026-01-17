@@ -635,67 +635,85 @@ function generateTocYaml(chapters: Chapter[], indent: number, isTopLevel = true)
 }
 
 function generateIndexPage(bookConfig: BookConfig): string {
-  const coverImageSection = bookConfig.coverImage
+  // Header section with cover, title, and author
+  const headerSection = bookConfig.coverImage
     ? `
 ::::{grid} 1 1 2 2
-:gutter: 3
+:gutter: 4
+:class-container: book-header
 
 :::{grid-item}
 :columns: 12 12 4 4
+:class: cover-image
 
-![Book Cover](${bookConfig.coverImage})
+![${bookConfig.title}](${bookConfig.coverImage})
 :::
 
 :::{grid-item}
 :columns: 12 12 8 8
-
-${bookConfig.description}
-
-**Author:** ${bookConfig.author}
-:::
-::::
-`
-    : `${bookConfig.description}
-
-## About This Book
-
-Written by ${bookConfig.author}`;
-
-  return `---
-title: ${bookConfig.title}
-${bookConfig.coverImage ? `thumbnail: ${bookConfig.coverImage}` : ''}
----
+:class: book-info
 
 # ${bookConfig.title}
 
-${coverImageSection}
-
-## Table of Contents
-
-${bookConfig.tableOfContents.chapters
-  .map((ch) => `- [${ch.title}](${ch.slug}.md)${ch.description ? ` - ${ch.description}` : ''}`)
-  .join('\n')}
+**by ${bookConfig.author}**
 
 ---
 
-*Created with Liquid Books by Dr. Lee*
+${bookConfig.description}
+:::
+::::
+`
+    : `
+# ${bookConfig.title}
+
+**by ${bookConfig.author}**
+
+---
+
+${bookConfig.description}
+`;
+
+  // Generate numbered chapter list
+  const numberedChapters = bookConfig.tableOfContents.chapters
+    .map((ch, index) => {
+      const chapterNum = index + 1;
+      return `${chapterNum}. [**Chapter ${chapterNum}:** ${ch.title}](${ch.slug}.md)${ch.description ? `\n   > ${ch.description}` : ''}`;
+    })
+    .join('\n\n');
+
+  return `---
+title: "${bookConfig.title} by ${bookConfig.author}"
+${bookConfig.coverImage ? `thumbnail: ${bookConfig.coverImage}` : ''}
+---
+
+${headerSection}
+
+## 📚 Table of Contents
+
+${numberedChapters}
+
+---
+
+*Created with [Liquid Books](https://github.com/fenago/Liquid-Books-21)*
 `;
 }
 
 function generateChapterFiles(
   chapters: Chapter[],
   prefix = '',
-  isTopLevel = true
+  isTopLevel = true,
+  startIndex = 1
 ): GeneratedFile[] {
   const files: GeneratedFile[] = [];
 
   for (let i = 0; i < chapters.length; i++) {
     const chapter = chapters[i];
+    const chapterNumber = isTopLevel ? startIndex + i : undefined; // Only number top-level chapters
     const filePath = prefix ? `${prefix}/${chapter.slug}.md` : `${chapter.slug}.md`;
 
     files.push({
       path: filePath,
-      content: generateChapterContent(chapter),
+      content: generateChapterContent(chapter, chapterNumber),
     });
 
     if (chapter.children && chapter.children.length > 0) {
@@ -714,14 +732,19 @@ function generateChapterFiles(
   return files;
 }
 
-function generateChapterContent(chapter: Chapter): string {
+function generateChapterContent(chapter: Chapter, chapterNumber?: number): string {
   const content = chapter.content || generatePlaceholderContent(chapter);
 
+  // Format title with chapter number if provided
+  const displayTitle = chapterNumber
+    ? `Chapter ${chapterNumber}: ${chapter.title}`
+    : chapter.title;
+
   return `---
-title: ${chapter.title}
+title: ${displayTitle}
 ---
 
-# ${chapter.title}
+# ${displayTitle}
 
 ${chapter.description ? `> ${chapter.description}\n` : ''}
 

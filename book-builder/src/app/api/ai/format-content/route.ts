@@ -174,12 +174,12 @@ Critical information
 :::
 \`\`\`
 
-9. **NO IMAGES** - Do NOT generate any image references, figures, or placeholders:
-   - Do NOT use :::{figure} directives
-   - Do NOT use ![alt](path) markdown images
-   - Do NOT create any image paths or URLs
-   - If the source content mentions a figure/diagram, just describe it in text or skip it
-   - Images will be added separately in a later process
+9. **IMAGES** - Only use REAL image URLs from the internet:
+   - ✓ OK: ![alt](https://example.com/real-image.png) - real URLs are fine
+   - ✗ BAD: ![alt](images/fake.png) - fake local paths will be stripped
+   - ✗ BAD: :::{figure} path/to/fake.jpg - fake paths will be stripped
+   - If you reference an image, it MUST be a real, working https:// URL
+   - Don't invent fake image paths - they will show as broken images
 
 10. **Math blocks** - MUST have curly braces:
 \`\`\`
@@ -335,8 +335,8 @@ Return the COMPLETE formatted chapter:`;
       // Fix common MyST syntax errors (missing curly braces)
       formattedContent = fixMystSyntax(formattedContent);
 
-      // Strip all image references (images added separately later)
-      formattedContent = stripAllImages(formattedContent);
+      // Strip fake local image paths, keep real URLs
+      formattedContent = stripFakeImages(formattedContent);
 
       // Validate the output - pass selectedFeatures to check ALL are used
       validationResult = validateFormattedOutput(
@@ -554,29 +554,31 @@ function fixMystSyntax(content: string): string {
   return fixed;
 }
 
-// Strip ALL image references - images will be added in a separate process
-function stripAllImages(content: string): string {
+// Strip FAKE image references - keep real URLs from the internet
+function stripFakeImages(content: string): string {
   let fixed = content;
   let fixCount = 0;
 
-  // Pattern 1: MyST figure blocks (any path)
-  // :::{figure} ... ::: or ::::{figure} ... ::::
-  const figurePattern = /:{3,}{figure}[^\n]*\n(?::[^\n]*\n)*[^:]*?:{3,}\n?/gi;
-  const figureMatches = fixed.match(figurePattern);
+  // Pattern 1: MyST figure blocks with LOCAL paths (not http/https)
+  // :::{figure} images/something.png (fake) vs :::{figure} https://... (keep)
+  const fakeFigurePattern = /:{3,}{figure}\s+(?!https?:\/\/)[^\n]*\n(?::[^\n]*\n)*[^:]*?:{3,}\n?/gi;
+  const figureMatches = fixed.match(fakeFigurePattern);
   if (figureMatches) fixCount += figureMatches.length;
-  fixed = fixed.replace(figurePattern, '');
+  fixed = fixed.replace(fakeFigurePattern, '');
 
-  // Pattern 2: Markdown images ![alt](path)
-  const mdImagePattern = /!\[[^\]]*\]\([^)]+\)\n?/gi;
-  const mdMatches = fixed.match(mdImagePattern);
+  // Pattern 2: Markdown images with LOCAL paths (not http/https)
+  // ![alt](images/fake.png) - remove
+  // ![alt](https://real.com/img.png) - keep
+  const fakeMdImagePattern = /!\[[^\]]*\]\((?!https?:\/\/)[^)]+\)\n?/gi;
+  const mdMatches = fixed.match(fakeMdImagePattern);
   if (mdMatches) fixCount += mdMatches.length;
-  fixed = fixed.replace(mdImagePattern, '');
+  fixed = fixed.replace(fakeMdImagePattern, '');
 
-  // Pattern 3: HTML img tags
-  const htmlImgPattern = /<img[^>]*>\n?/gi;
-  const htmlMatches = fixed.match(htmlImgPattern);
+  // Pattern 3: HTML img tags with LOCAL paths (not http/https)
+  const fakeHtmlImgPattern = /<img[^>]*src=["'](?!https?:\/\/)[^"']*["'][^>]*>\n?/gi;
+  const htmlMatches = fixed.match(fakeHtmlImgPattern);
   if (htmlMatches) fixCount += htmlMatches.length;
-  fixed = fixed.replace(htmlImgPattern, '');
+  fixed = fixed.replace(fakeHtmlImgPattern, '');
 
   // Clean up any leftover "Figure X.X:" captions without images
   const orphanCaptionPattern = /^Figure\s+\d+\.\d+:.*$/gim;
@@ -588,7 +590,7 @@ function stripAllImages(content: string): string {
   fixed = fixed.replace(/\n{3,}/g, '\n\n');
 
   if (fixCount > 0) {
-    console.log(`[IMAGE STRIP] Removed ${fixCount} image reference(s)`);
+    console.log(`[IMAGE STRIP] Removed ${fixCount} fake image reference(s), kept real URLs`);
   }
 
   return fixed;

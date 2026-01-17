@@ -174,15 +174,15 @@ Critical information
 :::
 \`\`\`
 
-9. **Figures** - MUST have curly braces:
+9. **Figures** - DO NOT generate fake image paths! If content mentions a figure/diagram/image:
+   - If there's an EXISTING image URL in the content, wrap it properly
+   - If NO image exists, use a descriptive card instead:
 \`\`\`
-:::{figure} path/to/image.png
-:alt: Description
-:width: 80%
-
-Caption text here
-:::
+::::{card} Figure 1.1: Dashboard Analytics
+A dashboard showing player tracking data and shot efficiency charts would display real-time metrics, heat maps, and performance trends.
+::::
 \`\`\`
+   - NEVER create fake paths like "images/dashboard.png" - they will show as broken images!
 
 10. **Math blocks** - MUST have curly braces:
 \`\`\`
@@ -337,6 +337,9 @@ Return the COMPLETE formatted chapter:`;
 
       // Fix common MyST syntax errors (missing curly braces)
       formattedContent = fixMystSyntax(formattedContent);
+
+      // Fix broken/fake image references
+      formattedContent = fixBrokenImages(formattedContent);
 
       // Validate the output - pass selectedFeatures to check ALL are used
       validationResult = validateFormattedOutput(
@@ -549,6 +552,36 @@ function fixMystSyntax(content: string): string {
 
   if (fixCount > 0) {
     console.log(`[SYNTAX FIX] Fixed ${fixCount} MyST directive(s) missing curly braces`);
+  }
+
+  return fixed;
+}
+
+// Fix broken/fake image references - convert to descriptive cards
+function fixBrokenImages(content: string): string {
+  let fixed = content;
+  let fixCount = 0;
+
+  // Pattern 1: MyST figure with fake local path
+  // :::{figure} images/something.png or :::{figure} path/to/image.jpg
+  const figurePattern = /:::{figure}\s+(?!https?:\/\/)[^\n]+\n(?::[\w-]+:[^\n]*\n)*\n?([^:]*?):::/gi;
+  fixed = fixed.replace(figurePattern, (match, caption) => {
+    fixCount++;
+    const cleanCaption = caption.trim() || 'Figure description';
+    return `::::{card} 📊 ${cleanCaption}\n*[Image placeholder - actual image to be added]*\n::::`;
+  });
+
+  // Pattern 2: Markdown image with fake local path (not http/https)
+  // ![alt text](images/something.png) or ![alt](path/to/image.jpg)
+  const mdImagePattern = /!\[([^\]]*)\]\((?!https?:\/\/)([^)]+)\)/gi;
+  fixed = fixed.replace(mdImagePattern, (match, alt, path) => {
+    fixCount++;
+    const description = alt || path.split('/').pop()?.replace(/\.[^.]+$/, '') || 'Image';
+    return `*[${description}]*`;
+  });
+
+  if (fixCount > 0) {
+    console.log(`[IMAGE FIX] Converted ${fixCount} fake image reference(s) to placeholders`);
   }
 
   return fixed;
